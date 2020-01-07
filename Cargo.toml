@@ -1,0 +1,25 @@
+[package]
+name = "rrc"
+version = "0.1.0"
+authors = ["mopemope <yutaka.matsubara@gmail.com>"]
+edition = "2018"
+description = "A manage remote repository clones"
+homepage = "https://github.com/mopemope/rr"
+repository = "https://github.com/mopemope/rr"
+keywords = ["git", "tool"]
+readme = "README.md"
+license = "Apache-2.0"
+
+[dependencies]
+clap = "2.3"
+failure = "0.1"
+failure_derive = "0.1"
+lazy_static = "1.4"
+log = "0.4"
+env_logger = "0.7"
+regex = "1.1"
+toml = "0.5"
+serde = "1.0"
+serde_derive = "1.0"
+dirs = "2.0"
+url = "2.1"
