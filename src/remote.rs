@@ -192,11 +192,14 @@ pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
     get(config, raw_url, true)
 }
 
-fn sync_repo(_config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
+fn sync_repo(config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
     let opt = parse_url(root, raw_url)?;
     let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
     if Path::new(&opt.path).exists() {
         vcs.update(&opt)?;
+        if config.look {
+            chdir(&opt.path)?;
+        }
         return Ok(true);
     }
     Ok(false)
