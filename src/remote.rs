@@ -81,67 +81,47 @@ impl fmt::Display for SSHPath {
 fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
     let opt = if let Ok(url) = Url::parse(raw_url) {
         let url_path = Path::new(url.path());
-        let parent = url_path
-            .parent()
+        let host = url
+            .host_str()
             .with_context(|| format!("unrecognized import path {}", raw_url))?;
-
-        let parent = parent
-            .file_name()
-            .with_context(|| format!("unrecognized import path {}", raw_url))?;
+        let root = Path::new(root);
+        let path = &url_path.to_str().context("failed to_str")?[1..];
+        let dir = root.join(host).join(path);
+        VCSOption {
+            url: Some(raw_url.to_owned()),
+            path: dir.to_str().context("failed to str")?.to_owned(),
+            host: Some(host.to_owned()),
+        }
+    } else if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
+        let root = Path::new(root);
+        let dir = root.join(ssh_path.host()).join(ssh_path.path());
+        VCSOption {
+            url: Some(raw_url.to_owned()),
+            path: dir.to_str().context("failed to str")?.to_owned(),
+            host: Some(ssh_path.host),
+        }
+    } else {
+        let size = raw_url.split('/').count();
+        let raw_url = if size == 2 {
+            format!("https://github.com/{}", raw_url)
+        } else {
+            format!("https://{}", raw_url)
+        };
+        let url = Url::parse(&raw_url)?;
+        let url_path = Path::new(url.path());
 
         let host = url
             .host_str()
             .with_context(|| format!("unrecognized import path {}", raw_url))?;
 
         let root = Path::new(root);
-        let file_stem = url_path
-            .file_stem()
-            .with_context(|| format!("unrecognized import path {}", raw_url))?;
+        let path = &url_path.to_str().context("failed to_str")?[1..];
+        let dir = root.join(host).join(path);
 
-        let dir = root.join(host).join(parent).join(file_stem);
         VCSOption {
             url: Some(raw_url.to_owned()),
             path: dir.to_str().context("failed to str")?.to_owned(),
             host: Some(host.to_owned()),
-        }
-    } else {
-        if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
-            let root = Path::new(root);
-            let dir = root.join(ssh_path.host()).join(ssh_path.path());
-            VCSOption {
-                url: Some(raw_url.to_owned()),
-                path: dir.to_str().context("failed to str")?.to_owned(),
-                host: Some(ssh_path.host),
-            }
-        } else {
-            let raw_url = format!("https://{}", raw_url);
-            let url = Url::parse(&raw_url)?;
-            let url_path = Path::new(url.path());
-
-            let parent = url_path
-                .parent()
-                .with_context(|| format!("unrecognized import path {}", raw_url))?;
-
-            let parent = parent
-                .file_name()
-                .with_context(|| format!("unrecognized import path {}", raw_url))?;
-
-            let host = url
-                .host_str()
-                .with_context(|| format!("unrecognized import path {}", raw_url))?;
-
-            let root = Path::new(root);
-            let file_stem = url_path
-                .file_stem()
-                .with_context(|| format!("unrecognized import path {}", raw_url))?;
-
-            let dir = root.join(host).join(parent).join(file_stem);
-
-            VCSOption {
-                url: Some(raw_url.to_owned()),
-                path: dir.to_str().context("failed to str")?.to_owned(),
-                host: Some(host.to_owned()),
-            }
         }
     };
     debug!("{:?}", opt);
