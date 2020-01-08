@@ -1,11 +1,11 @@
 [package]
 name = "rrc"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["mopemope <yutaka.matsubara@gmail.com>"]
 edition = "2018"
 description = "A manage remote repository clones"
-homepage = "https://github.com/mopemope/rr"
-repository = "https://github.com/mopemope/rr"
+homepage = "https://github.com/mopemope/rrc"
+repository = "https://github.com/mopemope/rrc"
 keywords = ["git", "tool"]
 readme = "README.md"
 license = "Apache-2.0"
