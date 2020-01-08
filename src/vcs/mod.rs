@@ -1,7 +1,7 @@
 mod git;
 mod hg;
 
-use failure::{err_msg, Error};
+use anyhow::Result;
 use serde_derive::Deserialize;
 use std::fmt::Debug;
 
@@ -23,13 +23,13 @@ pub enum VCSBackend {
 }
 
 impl VCSBackend {
-    pub fn get_repository(&self, opt: &VCSOption) -> Result<(), Error> {
+    pub fn get_repository(&self, opt: &VCSOption) -> Result<()> {
         match self {
             VCSBackend::GitBackend => git::get_repository(opt),
             VCSBackend::MercurialBackend => hg::get_repository(opt),
         }
     }
-    pub fn update(&self, opt: &VCSOption) -> Result<(), Error> {
+    pub fn update(&self, opt: &VCSOption) -> Result<()> {
         match self {
             VCSBackend::GitBackend => git::update(opt),
             VCSBackend::MercurialBackend => hg::update(opt),
@@ -37,13 +37,13 @@ impl VCSBackend {
     }
 }
 
-pub fn detect_vcs(url: &str) -> Result<VCSBackend, Error> {
+pub fn detect_vcs(url: &str) -> Result<VCSBackend> {
     if let Ok(backend) = git::from_str(url) {
         Ok(backend)
     } else if let Ok(backend) = hg::from_str(url) {
         Ok(backend)
     } else {
-        Err(err_msg(format!("fail detect vcs backend {}", url)))
+        Err(anyhow::format_err!("fail detect vcs backend {}", url))
     }
 }
 

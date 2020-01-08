@@ -1,11 +1,11 @@
+use anyhow::{Context, Result};
 use dirs::home_dir;
-use failure::{err_msg, Error};
 use lazy_static::lazy_static;
 use serde_derive::Deserialize;
 use std::collections::{BTreeSet, HashMap};
 use std::default::Default;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::Read;
 use std::{env, path};
 use toml::from_str;
 
@@ -70,16 +70,16 @@ impl Config<'_> {
         set
     }
 
-    pub fn profile(&self, name: &str) -> Result<&RepositoryConfig, Error> {
+    pub fn profile(&self, name: &str) -> Result<&RepositoryConfig> {
         if let Some(config) = self.repos.get(name) {
             Ok(config)
         } else {
-            Err(err_msg(format!("profile '{}' not found", name)))
+            Err(anyhow::format_err!("profile '{}' not found", name))
         }
     }
 }
 
-pub fn parse_config(path: &str) -> io::Result<Config> {
+pub fn parse_config(path: &str) -> Result<Config> {
     let mut config: Config = Default::default();
     if !path::Path::new(path).exists() {
         return Ok(config);
@@ -88,7 +88,8 @@ pub fn parse_config(path: &str) -> io::Result<Config> {
     let mut file = File::open(path)?;
     file.read_to_string(&mut config_toml)?;
 
-    let repos = from_str(&config_toml).expect("toml parse error");
+    let repos =
+        from_str(&config_toml).with_context(|| format!("toml parse error. path: {}", path))?;
     config.repos = repos;
     Ok(config)
 }

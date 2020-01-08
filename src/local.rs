@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::utils::chdir;
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
-use failure::{err_msg, Error};
+use anyhow::Result;
 use log::debug;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
@@ -32,7 +32,7 @@ fn find_repository(
     root_path: &str,
     path: &PathBuf,
     entry: fs::DirEntry,
-) -> Result<Option<LocalRepository>, Error> {
+) -> Result<Option<LocalRepository>> {
     if let Some(file_name) = entry.file_name().to_str() {
         if let Some(backend) = detect_vcs_from_path(file_name) {
             let path = fs::canonicalize(&path)?;
@@ -52,7 +52,7 @@ fn find_sub_repositories(
     root_path: &str,
     root: &Path,
     repos: &mut Vec<LocalRepository>,
-) -> Result<(), Error> {
+) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
         let entry = entry?;
@@ -71,11 +71,7 @@ fn find_sub_repositories(
     Ok(())
 }
 
-fn find_repositories(
-    root_path: &str,
-    root: &Path,
-    repos: &mut Vec<LocalRepository>,
-) -> Result<(), Error> {
+fn find_repositories(root_path: &str, root: &Path, repos: &mut Vec<LocalRepository>) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
         let entry = entry?;
@@ -99,7 +95,7 @@ fn find_user_repositories(
     root_path: &str,
     root: &Path,
     repos: &mut Vec<LocalRepository>,
-) -> Result<(), Error> {
+) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
         let entry = entry?;
@@ -121,7 +117,7 @@ fn find_service_repositories(
     root_path: &str,
     root: &Path,
     repos: &mut Vec<LocalRepository>,
-) -> Result<(), Error> {
+) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
         let entry = entry?;
@@ -135,7 +131,7 @@ fn find_service_repositories(
     Ok(())
 }
 
-fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<(), Error> {
+fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<()> {
     let root = fs::read_dir(root_path)?;
     for entry in root {
         let entry = entry?;
@@ -149,7 +145,7 @@ fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<
     Ok(())
 }
 
-fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>, Error> {
+fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>> {
     let mut result: Vec<LocalRepository> = vec![];
 
     for root in config.roots() {
@@ -158,14 +154,14 @@ fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>, Error>
     Ok(result)
 }
 
-fn list_repo(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>, Error> {
+fn list_repo(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>> {
     let repo_config = config.profile(profile)?;
     let mut result: Vec<LocalRepository> = vec![];
     walk_repository(&repo_config.root, &mut result)?;
     Ok(result)
 }
 
-pub fn list(config: &Config<'_>) -> Result<(), Error> {
+pub fn list(config: &Config<'_>) -> Result<()> {
     let repos = if let Some(profile) = config.profile {
         list_repo(config, profile)?
     } else {
@@ -178,7 +174,7 @@ pub fn list(config: &Config<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn update(config: &Config<'_>) -> Result<(), Error> {
+pub fn update(config: &Config<'_>) -> Result<()> {
     let repos = if let Some(profile) = config.profile {
         list_repo(config, profile)?
     } else {
@@ -199,7 +195,7 @@ pub fn update(config: &Config<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn look(config: &Config<'_>) -> Result<(), Error> {
+pub fn look(config: &Config<'_>) -> Result<()> {
     let repos = if let Some(profile) = config.profile {
         list_repo(config, profile)?
     } else {
@@ -208,7 +204,7 @@ pub fn look(config: &Config<'_>) -> Result<(), Error> {
     let fuzzy = FuzzyVec::from_vec(repos);
     let repos = fuzzy.search(&config.query);
     if repos.is_empty() {
-        Err(err_msg(format!("{} not found", &config.query)))
+        Err(anyhow::format_err!("{} not found", &config.query))
     } else {
         let path = &repos[0].path;
         chdir(path)?;

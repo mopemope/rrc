@@ -1,8 +1,8 @@
-use failure::Error;
+use anyhow::Result;
 use std::env;
 use std::process::{Command, Stdio};
 
-pub fn run_silently(cmd: &[&str]) -> Result<bool, Error> {
+pub fn run_silently(cmd: &[&str]) -> Result<bool> {
     let mut cmd = Command::new(&cmd[0])
         .args(&cmd[1..])
         .stdout(Stdio::null())
@@ -13,7 +13,7 @@ pub fn run_silently(cmd: &[&str]) -> Result<bool, Error> {
     Ok(status.success())
 }
 
-pub fn run(cmd: &[&str]) -> Result<bool, Error> {
+pub fn run(cmd: &[&str]) -> Result<bool> {
     let mut cmd = Command::new(&cmd[0])
         .args(&cmd[1..])
         .stdout(Stdio::inherit())
@@ -23,7 +23,7 @@ pub fn run(cmd: &[&str]) -> Result<bool, Error> {
     Ok(status.success())
 }
 
-pub fn run_with_work_dir(cmd: &[&str], dir: &str) -> Result<bool, Error> {
+pub fn run_with_work_dir(cmd: &[&str], dir: &str) -> Result<bool> {
     let mut cmd = Command::new(&cmd[0])
         .args(&cmd[1..])
         .current_dir(dir)
@@ -34,7 +34,7 @@ pub fn run_with_work_dir(cmd: &[&str], dir: &str) -> Result<bool, Error> {
     Ok(status.success())
 }
 
-pub fn chdir(dir: &str) -> Result<bool, Error> {
+pub fn chdir(dir: &str) -> Result<bool> {
     if let Ok(shell) = env::var("SHELL") {
         run_with_work_dir(&[&shell], dir)
     } else {

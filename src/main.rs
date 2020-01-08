@@ -4,8 +4,8 @@ mod remote;
 mod utils;
 mod vcs;
 
+use anyhow::{Context, Result};
 use clap::{App, AppSettings, Arg, SubCommand};
-use failure::Error;
 use lazy_static::lazy_static;
 use log::{debug, error};
 use std::env;
@@ -122,7 +122,7 @@ fn make_app() -> App<'static, 'static> {
         )
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<()> {
     let app = make_app();
     let matches = app.get_matches();
     let config_path = matches.value_of("config").unwrap();
@@ -132,7 +132,7 @@ fn run() -> Result<(), Error> {
 
     match matches.subcommand() {
         ("get", Some(m)) => {
-            let urls = m.values_of("url").expect("require repository url");
+            let urls = m.values_of("url").context("require repository url")?;
             let update = m.is_present("update");
             config.look = m.is_present("look");
             config.profile = m.value_of("profile");
@@ -175,10 +175,5 @@ fn main() {
     env_logger::init();
     if let Err(err) = run() {
         error!("{}", err);
-        for cause in err.iter_chain().skip(1) {
-            error!("  caused by: {}", cause);
-        }
-        //let bt = err.backtrace();
-        //error!("{}", bt);
     }
 }

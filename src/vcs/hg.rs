@@ -1,16 +1,16 @@
 use super::{VCSBackend, VCSOption};
 use crate::utils::{run, run_silently, run_with_work_dir};
-use failure::{err_msg, Error};
+use anyhow::Result;
 
-pub fn from_str(s: &str) -> Result<VCSBackend, Error> {
+pub fn from_str(s: &str) -> Result<VCSBackend> {
     match run_silently(&["hg", "identify", s]) {
         Ok(true) => Ok(VCSBackend::MercurialBackend),
-        Ok(false) => Err(err_msg("not hg repository")),
+        Ok(false) => Err(anyhow::format_err!("not hg repository")),
         Err(e) => Err(e),
     }
 }
 
-pub fn get_repository(option: &VCSOption) -> Result<(), Error> {
+pub fn get_repository(option: &VCSOption) -> Result<()> {
     let url = option.url.clone().unwrap();
     match run(&["hg", "clone", &url, &option.path]) {
         Ok(_) => Ok(()),
@@ -18,7 +18,7 @@ pub fn get_repository(option: &VCSOption) -> Result<(), Error> {
     }
 }
 
-pub fn update(option: &VCSOption) -> Result<(), Error> {
+pub fn update(option: &VCSOption) -> Result<()> {
     match run_with_work_dir(&["hg", "pull", "--update"], &option.path) {
         Ok(_) => Ok(()),
         Err(e) => Err(e),

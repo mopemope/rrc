@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::utils::chdir;
 use crate::vcs::{detect_vcs, VCSOption};
-use failure::{format_err, Error, Fallible};
+use anyhow::{Context, Error, Result};
 use lazy_static::lazy_static;
 use log::debug;
 use regex::Regex;
@@ -40,10 +40,10 @@ impl SSHPath {
 impl FromStr for SSHPath {
     type Err = Error;
 
-    fn from_str(s: &str) -> Fallible<SSHPath> {
+    fn from_str(s: &str) -> Result<SSHPath> {
         let cap = RE_SCP
             .captures(s)
-            .ok_or_else(|| format_err!("does not match"))?;
+            .with_context(|| format!("{} does not match", s))?;
 
         let user = cap
             .get(1)
@@ -74,7 +74,7 @@ impl fmt::Display for SSHPath {
     }
 }
 
-pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<(), Error> {
+pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
     let profile = config.profile.unwrap_or("default");
     let repo_config = config.profile(profile)?;
     let root = &repo_config.root;
@@ -123,7 +123,7 @@ pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<(), Error
     Ok(())
 }
 
-pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<(), Error> {
+pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
     if let Some(profile) = config.profile {
         let repo_config = config.profile(profile)?;
         if sync_repo(config, &repo_config.root, raw_url)? {
@@ -140,7 +140,7 @@ pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<(), Error> {
     get(config, raw_url, true)
 }
 
-fn sync_repo(config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool, Error> {
+fn sync_repo(_config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
     if let Ok(vcs) = detect_vcs(raw_url) {
         let opt = if let Ok(url) = Url::parse(raw_url) {
             let url_path = Path::new(url.path());
