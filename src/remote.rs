@@ -74,28 +74,34 @@ impl fmt::Display for SSHPath {
     }
 }
 
-pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
-    let profile = config.profile.unwrap_or("default");
-    let repo_config = config.profile(profile)?;
-    let root = &repo_config.root;
-    debug!("repos_root {}", root);
+fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
+    let opt = if let Ok(url) = Url::parse(raw_url) {
+        let url_path = Path::new(url.path());
+        let parent = url_path
+            .parent()
+            .with_context(|| format!("unrecognized import path {}", raw_url))?;
 
-    if let Ok(vcs) = detect_vcs(raw_url) {
-        let opt = if let Ok(url) = Url::parse(raw_url) {
-            let url_path = Path::new(url.path());
-            let parent = url_path.parent().unwrap().file_name().unwrap();
-            let host = url.host_str().unwrap();
-            let root = Path::new(root);
-            let file_stem = url_path.file_stem().unwrap();
-            let dir = root.join(host).join(parent).join(file_stem);
+        let parent = parent
+            .file_name()
+            .with_context(|| format!("unrecognized import path {}", raw_url))?;
 
-            VCSOption {
-                url: Some(raw_url.to_owned()),
-                path: dir.to_str().unwrap().to_owned(),
-                host: Some(host.to_owned()),
-            }
-        } else {
-            let ssh_path: SSHPath = raw_url.parse()?;
+        let host = url
+            .host_str()
+            .with_context(|| format!("unrecognized import path {}", raw_url))?;
+
+        let root = Path::new(root);
+        let file_stem = url_path
+            .file_stem()
+            .with_context(|| format!("unrecognized import path {}", raw_url))?;
+
+        let dir = root.join(host).join(parent).join(file_stem);
+        VCSOption {
+            url: Some(raw_url.to_owned()),
+            path: dir.to_str().unwrap().to_owned(),
+            host: Some(host.to_owned()),
+        }
+    } else {
+        if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
             let root = Path::new(root);
             let dir = root.join(ssh_path.host()).join(ssh_path.path());
             VCSOption {
@@ -103,23 +109,65 @@ pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
                 path: dir.to_str().unwrap().to_owned(),
                 host: Some(ssh_path.host),
             }
-        };
-
-        if update && Path::new(&opt.path).exists() {
-            vcs.update(&opt)?;
-            if config.look {
-                chdir(&opt.path)?;
-            }
         } else {
-            if !Path::new(&opt.path).exists() {
-                create_dir_all(&opt.path)?;
-            }
-            vcs.get_repository(&opt)?;
-            if config.look {
-                chdir(&opt.path)?;
+            let raw_url = format!("https://{}", raw_url);
+            let url = Url::parse(&raw_url)?;
+            let url_path = Path::new(url.path());
+
+            let parent = url_path
+                .parent()
+                .with_context(|| format!("unrecognized import path {}", raw_url))?;
+
+            let parent = parent
+                .file_name()
+                .with_context(|| format!("unrecognized import path {}", raw_url))?;
+
+            let host = url
+                .host_str()
+                .with_context(|| format!("unrecognized import path {}", raw_url))?;
+
+            let root = Path::new(root);
+            let file_stem = url_path
+                .file_stem()
+                .with_context(|| format!("unrecognized import path {}", raw_url))?;
+
+            let dir = root.join(host).join(parent).join(file_stem);
+
+            VCSOption {
+                url: Some(raw_url.to_owned()),
+                path: dir.to_str().unwrap().to_owned(),
+                host: Some(host.to_owned()),
             }
         }
+    };
+    debug!("{:?}", opt);
+    Ok(opt)
+}
+
+pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
+    let profile = config.profile.unwrap_or("default");
+    let repo_config = config.profile(profile)?;
+    let root = &repo_config.root;
+    debug!("repos_root {}", root);
+
+    let opt = parse_url(root, raw_url)?;
+    let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
+
+    if update && Path::new(&opt.path).exists() {
+        vcs.update(&opt)?;
+        if config.look {
+            chdir(&opt.path)?;
+        }
+    } else {
+        if !Path::new(&opt.path).exists() {
+            create_dir_all(&opt.path)?;
+        }
+        vcs.get_repository(&opt)?;
+        if config.look {
+            chdir(&opt.path)?;
+        }
     }
+
     Ok(())
 }
 
@@ -141,34 +189,11 @@ pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
 }
 
 fn sync_repo(_config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
-    if let Ok(vcs) = detect_vcs(raw_url) {
-        let opt = if let Ok(url) = Url::parse(raw_url) {
-            let url_path = Path::new(url.path());
-            let parent = url_path.parent().unwrap().file_name().unwrap();
-            let host = url.host_str().unwrap();
-            let root = Path::new(root);
-            let file_stem = url_path.file_stem().unwrap();
-            let dir = root.join(host).join(parent).join(file_stem);
-
-            VCSOption {
-                url: Some(raw_url.to_owned()),
-                path: dir.to_str().unwrap().to_owned(),
-                host: Some(host.to_owned()),
-            }
-        } else {
-            let ssh_path: SSHPath = raw_url.parse()?;
-            let root = Path::new(root);
-            let dir = root.join(ssh_path.host()).join(ssh_path.path());
-            VCSOption {
-                url: Some(raw_url.to_owned()),
-                path: dir.to_str().unwrap().to_owned(),
-                host: Some(ssh_path.host),
-            }
-        };
-        if Path::new(&opt.path).exists() {
-            vcs.update(&opt)?;
-            return Ok(true);
-        }
+    let opt = parse_url(root, raw_url)?;
+    let vcs = detect_vcs(raw_url)?;
+    if Path::new(&opt.path).exists() {
+        vcs.update(&opt)?;
+        return Ok(true);
     }
     Ok(false)
 }
