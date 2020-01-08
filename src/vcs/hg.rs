@@ -1,6 +1,6 @@
 use super::{VCSBackend, VCSOption};
 use crate::utils::{run, run_silently, run_with_work_dir};
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 pub fn from_str(s: &str) -> Result<VCSBackend> {
     match run_silently(&["hg", "identify", s]) {
@@ -11,7 +11,7 @@ pub fn from_str(s: &str) -> Result<VCSBackend> {
 }
 
 pub fn get_repository(option: &VCSOption) -> Result<()> {
-    let url = option.url.clone().unwrap();
+    let url = option.url.clone().context("failed clone url")?;
     match run(&["hg", "clone", &url, &option.path]) {
         Ok(_) => Ok(()),
         Err(e) => Err(e),

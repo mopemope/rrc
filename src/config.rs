@@ -89,7 +89,8 @@ pub fn parse_config(path: &str) -> Result<Config> {
     file.read_to_string(&mut config_toml)?;
 
     let repos =
-        from_str(&config_toml).with_context(|| format!("toml parse error. path: {}", path))?;
+        from_str(&config_toml).with_context(|| format!("failed parse toml. path: {}", path))?;
+
     config.repos = repos;
     Ok(config)
 }

@@ -57,10 +57,14 @@ impl FromStr for SSHPath {
             .map(|s| s.trim_end_matches('@'))
             .unwrap_or("git")
             .to_owned();
-        let host = cap.get(2).unwrap().as_str().to_owned();
+        let host = cap
+            .get(2)
+            .context("failed get regex capture")?
+            .as_str()
+            .to_owned();
         let path = cap
             .get(3)
-            .unwrap()
+            .context("failed get regex capture")?
             .as_str()
             .trim_end_matches(".git")
             .to_owned();
@@ -97,7 +101,7 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
         let dir = root.join(host).join(parent).join(file_stem);
         VCSOption {
             url: Some(raw_url.to_owned()),
-            path: dir.to_str().unwrap().to_owned(),
+            path: dir.to_str().context("failed to str")?.to_owned(),
             host: Some(host.to_owned()),
         }
     } else {
@@ -106,7 +110,7 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
             let dir = root.join(ssh_path.host()).join(ssh_path.path());
             VCSOption {
                 url: Some(raw_url.to_owned()),
-                path: dir.to_str().unwrap().to_owned(),
+                path: dir.to_str().context("failed to str")?.to_owned(),
                 host: Some(ssh_path.host),
             }
         } else {
@@ -135,7 +139,7 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
 
             VCSOption {
                 url: Some(raw_url.to_owned()),
-                path: dir.to_str().unwrap().to_owned(),
+                path: dir.to_str().context("failed to str")?.to_owned(),
                 host: Some(host.to_owned()),
             }
         }

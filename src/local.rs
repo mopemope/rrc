@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::utils::chdir;
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::debug;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
@@ -36,7 +36,12 @@ fn find_repository(
     if let Some(file_name) = entry.file_name().to_str() {
         if let Some(backend) = detect_vcs_from_path(file_name) {
             let path = fs::canonicalize(&path)?;
-            let path = path.parent().unwrap().to_str().unwrap().to_owned();
+            let path = path
+                .parent()
+                .context("failed get parent")?
+                .to_str()
+                .context("failed get parent")?
+                .to_owned();
             let relpath = path[root_path.len() + 1..].to_owned();
             return Ok(Some(LocalRepository {
                 path,
