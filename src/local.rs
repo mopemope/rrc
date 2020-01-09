@@ -1,8 +1,7 @@
 use crate::config::Config;
-use crate::utils::chdir;
+use crate::utils::{chdir, confirm};
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
 use anyhow::{Context, Result};
-use log::debug;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -159,62 +158,76 @@ fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>> {
     Ok(result)
 }
 
-fn list_repo(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>> {
+fn list_repos(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>> {
     let repo_config = config.profile(profile)?;
     let mut result: Vec<LocalRepository> = vec![];
     walk_repository(&repo_config.root, &mut result)?;
     Ok(result)
 }
 
-pub fn list(config: &Config<'_>) -> Result<()> {
+fn each_repo(
+    config: &Config<'_>,
+    f: fn(&Config<'_>, &Vec<&LocalRepository>) -> Result<()>,
+) -> Result<()> {
     let repos = if let Some(profile) = config.profile {
-        list_repo(config, profile)?
-    } else {
-        walk_repositories(config)?
-    };
-    let fuzzy = FuzzyVec::from_vec(repos);
-    for repo in fuzzy.search(&config.query) {
-        println!("{}", repo.path);
-    }
-    Ok(())
-}
-
-pub fn update(config: &Config<'_>) -> Result<()> {
-    let repos = if let Some(profile) = config.profile {
-        list_repo(config, profile)?
-    } else {
-        walk_repositories(config)?
-    };
-
-    let fuzzy = FuzzyVec::from_vec(repos);
-    for repo in fuzzy.search(&config.query) {
-        let opt = VCSOption {
-            url: None,
-            path: repo.path.clone(),
-            host: None,
-        };
-        println!("update {}", &opt.path);
-        repo.backend.update(&opt)?;
-        println!();
-    }
-    Ok(())
-}
-
-pub fn look(config: &Config<'_>) -> Result<()> {
-    let repos = if let Some(profile) = config.profile {
-        list_repo(config, profile)?
+        list_repos(config, profile)?
     } else {
         walk_repositories(config)?
     };
     let fuzzy = FuzzyVec::from_vec(repos);
     let repos = fuzzy.search(&config.query);
-    if repos.is_empty() {
-        Err(anyhow::format_err!("{} not found", &config.query))
-    } else {
-        let path = &repos[0].path;
-        chdir(path)?;
+    f(config, &repos)
+}
+
+pub fn list(config: &Config<'_>) -> Result<()> {
+    each_repo(config, |_, repos| {
+        for repo in repos {
+            println!("{}", repo.path);
+        }
         Ok(())
-    }
+    })
+}
+
+pub fn update(config: &Config<'_>) -> Result<()> {
+    each_repo(config, |_, repos| {
+        for repo in repos {
+            let opt = VCSOption {
+                url: None,
+                path: repo.path.clone(),
+                host: None,
+            };
+            println!("update {}", &opt.path);
+            repo.backend.update(&opt)?;
+            println!();
+        }
+        Ok(())
+    })
+}
+
+pub fn look(config: &Config<'_>) -> Result<()> {
+    each_repo(config, |config, repos| {
+        if repos.is_empty() {
+            Err(anyhow::format_err!("{} not found", &config.query))
+        } else {
+            let path = &repos[0].path;
+            chdir(path)?;
+            Ok(())
+        }
+    })
+}
+
+pub fn remove(config: &Config<'_>) -> Result<()> {
+    each_repo(config, |_, repos| {
+        for repo in repos {
+            println!("{}", &repo.path);
+            if confirm("do you want to remove this? [Y/n]", "Y", Some("Y"))? {
+                fs::remove_dir_all(&repo.path)?;
+                println!("removed {}", &repo.path);
+            }
+            println!();
+        }
+        Ok(())
+    })
 }
 
 ///

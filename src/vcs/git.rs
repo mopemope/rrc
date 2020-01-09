@@ -1,7 +1,6 @@
 use super::{VCSBackend, VCSOption};
 use crate::utils::{run, run_silently, run_with_work_dir};
 use anyhow::{Context, Result};
-use log::debug;
 use url::Url;
 
 pub fn from_str(s: &str) -> Result<VCSBackend> {

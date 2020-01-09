@@ -120,6 +120,25 @@ fn make_app() -> App<'static, 'static> {
                         .help("Perform an exact match"),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("remove")
+                .about("Remove local repositories")
+                .arg(
+                    Arg::with_name("profile")
+                        .multiple(false)
+                        .value_name("profile")
+                        .short("p")
+                        .long("profile")
+                        .help("Select profile"),
+                )
+                .arg(
+                    Arg::with_name("exact")
+                        .multiple(false)
+                        .required(true)
+                        .value_name("query")
+                        .help("Perform an exact match"),
+                ),
+        )
 }
 
 fn run() -> Result<()> {
@@ -166,6 +185,13 @@ fn run() -> Result<()> {
                 config.query = query.to_owned();
             }
             local::look(&config)
+        }
+        ("remove", Some(m)) => {
+            config.profile = m.value_of("profile");
+            if let Some(query) = m.value_of("exact") {
+                config.query = query.to_owned();
+            }
+            local::remove(&config)
         }
         _ => unreachable!(),
     }
