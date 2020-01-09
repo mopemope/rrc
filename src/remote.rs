@@ -86,7 +86,8 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
             .with_context(|| format!("unrecognized import path {}", raw_url))?;
         let root = Path::new(root);
         let path = &url_path.to_str().context("failed to_str")?[1..];
-        let dir = root.join(host).join(path);
+        let mut dir = root.join(host).join(path);
+        dir.set_extension("");
         VCSOption {
             url: Some(raw_url.to_owned()),
             path: dir.to_str().context("failed to str")?.to_owned(),
@@ -94,7 +95,8 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
         }
     } else if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
         let root = Path::new(root);
-        let dir = root.join(ssh_path.host()).join(ssh_path.path());
+        let mut dir = root.join(ssh_path.host()).join(ssh_path.path());
+        dir.set_extension("");
         VCSOption {
             url: Some(raw_url.to_owned()),
             path: dir.to_str().context("failed to str")?.to_owned(),
@@ -116,7 +118,8 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
 
         let root = Path::new(root);
         let path = &url_path.to_str().context("failed to_str")?[1..];
-        let dir = root.join(host).join(path);
+        let mut dir = root.join(host).join(path);
+        dir.set_extension("");
 
         VCSOption {
             url: Some(raw_url.to_owned()),
