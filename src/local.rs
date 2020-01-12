@@ -2,10 +2,13 @@ use crate::config::Config;
 use crate::utils::{chdir, confirm};
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
 use anyhow::{Context, Result};
+use async_std::task;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 pub struct LocalRepository {
     pub path: String,
     pub relpath: String,
@@ -28,7 +31,7 @@ impl Debug for LocalRepository {
 }
 
 fn find_repository(
-    root_path: &str,
+    root_path: Arc<String>,
     path: &PathBuf,
     entry: fs::DirEntry,
 ) -> Result<Option<LocalRepository>> {
@@ -53,9 +56,9 @@ fn find_repository(
 }
 
 fn find_sub_repositories(
-    root_path: &str,
+    root_path: Arc<String>,
     root: &Path,
-    repos: &mut Vec<LocalRepository>,
+    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
@@ -65,17 +68,22 @@ fn find_sub_repositories(
         if metadata.is_file() {
             continue;
         }
-        if let Some(repo) = find_repository(root_path, &path, entry)? {
+        if let Some(repo) = find_repository(Arc::clone(&root_path), &path, entry)? {
+            let mut repos = repos.lock().unwrap();
             repos.push(repo);
             return Ok(());
         } else {
-            find_sub_repositories(root_path, &path, repos)?;
+            find_sub_repositories(Arc::clone(&root_path), &path, repos)?;
         }
     }
     Ok(())
 }
 
-fn find_repositories(root_path: &str, root: &Path, repos: &mut Vec<LocalRepository>) -> Result<()> {
+async fn find_repositories(
+    root_path: Arc<String>,
+    root: &Path,
+    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
+) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
         let entry = entry?;
@@ -84,21 +92,22 @@ fn find_repositories(root_path: &str, root: &Path, repos: &mut Vec<LocalReposito
         if metadata.is_file() {
             continue;
         }
-        if let Some(repo) = find_repository(root_path, &path, entry)? {
+        if let Some(repo) = find_repository(Arc::clone(&root_path), &path, entry)? {
+            let mut repos = repos.lock().unwrap();
             repos.push(repo);
             return Ok(());
         } else {
-            find_sub_repositories(root_path, &path, repos)?;
+            find_sub_repositories(Arc::clone(&root_path), &path, repos)?;
         }
     }
 
     Ok(())
 }
 
-fn find_user_repositories(
-    root_path: &str,
+async fn find_user_repositories(
+    root_path: Arc<String>,
     root: &Path,
-    repos: &mut Vec<LocalRepository>,
+    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
@@ -108,19 +117,20 @@ fn find_user_repositories(
         if metadata.is_file() {
             continue;
         }
-        if let Some(repo) = find_repository(root_path, &path, entry)? {
+        if let Some(repo) = find_repository(Arc::clone(&root_path), &path, entry)? {
+            let mut repos = repos.lock().unwrap();
             repos.push(repo);
             return Ok(());
         }
-        find_repositories(root_path, &path, repos)?;
+        find_repositories(Arc::clone(&root_path), &path, repos).await?;
     }
     Ok(())
 }
 
-fn find_service_repositories(
-    root_path: &str,
+async fn find_service_repositories(
+    root_path: Arc<String>,
     root: &Path,
-    repos: &mut Vec<LocalRepository>,
+    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
     let root = fs::read_dir(root)?;
     for entry in root {
@@ -130,13 +140,17 @@ fn find_service_repositories(
         if metadata.is_file() {
             continue;
         }
-        find_user_repositories(root_path, &path, repos)?;
+        find_user_repositories(Arc::clone(&root_path), &path, &mut Arc::clone(&repos)).await?;
     }
+
     Ok(())
 }
 
-fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<()> {
+fn walk_repository(root_path: &str, repos: &mut Arc<Mutex<Vec<LocalRepository>>>) -> Result<()> {
     let root = fs::read_dir(root_path)?;
+    let root_path = Arc::new(root_path.to_owned());
+    let mut futures: Vec<task::JoinHandle<Result<()>>> = vec![];
+
     for entry in root {
         let entry = entry?;
         let path = entry.path();
@@ -144,24 +158,39 @@ fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<
         if metadata.is_file() {
             continue;
         }
-        find_service_repositories(root_path, &path, repos)?;
+
+        let repos = Arc::clone(&repos);
+        let root_path = Arc::clone(&root_path);
+        let f = task::spawn(async move {
+            find_service_repositories(Arc::clone(&root_path), &path, &mut Arc::clone(&repos)).await
+        });
+        futures.push(f);
     }
+
+    for f in futures {
+        let _ = task::block_on(f);
+    }
+
     Ok(())
 }
 
 fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>> {
-    let mut result: Vec<LocalRepository> = vec![];
+    let result: Vec<LocalRepository> = vec![];
+    let mut result: Arc<Mutex<Vec<LocalRepository>>> = Arc::new(Mutex::new(result));
 
     for root in config.roots() {
         walk_repository(root, &mut result)?;
     }
+    let result = result.lock().unwrap().to_vec();
     Ok(result)
 }
 
 fn list_repos(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>> {
     let repo_config = config.profile(profile)?;
-    let mut result: Vec<LocalRepository> = vec![];
+    let result: Vec<LocalRepository> = vec![];
+    let mut result: Arc<Mutex<Vec<LocalRepository>>> = Arc::new(Mutex::new(result));
     walk_repository(&repo_config.root, &mut result)?;
+    let result = result.lock().unwrap().to_vec();
     Ok(result)
 }
 
@@ -329,7 +358,8 @@ mod tests {
     fn read_dir() {
         let root_path = "/home/ma2/repos";
         let root_path = canonicalize(root_path).unwrap();
-        let mut result: Vec<LocalRepository> = vec![];
+        let result: Vec<LocalRepository> = vec![];
+        let mut result: Arc<Mutex<Vec<LocalRepository>>> = Arc::new(Mutex::new(result));
         walk_repository(root_path.to_str().unwrap(), &mut result).unwrap();
         println!("repos: {:?}", result);
     }
