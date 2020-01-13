@@ -26,7 +26,7 @@ fn make_app() -> App<'static, 'static> {
                 .value_name("FILE")
                 .short("c")
                 .long("config")
-                .help("Set config file."),
+                .help("Set config file"),
         )
         .subcommand(
             SubCommand::with_name("get")
@@ -139,6 +139,41 @@ fn make_app() -> App<'static, 'static> {
                         .help("Perform an exact match"),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("each")
+                .about("Execute command for each local repositories")
+                .arg(
+                    Arg::with_name("profile")
+                        .multiple(false)
+                        .value_name("profile")
+                        .short("p")
+                        .long("profile")
+                        .help("Select profile"),
+                )
+                .arg(
+                    Arg::with_name("dry-run")
+                        .multiple(false)
+                        .short("d")
+                        .long("dry-run")
+                        .help("Dry run"),
+                )
+                .arg(
+                    Arg::with_name("exact")
+                        .multiple(false)
+                        .value_name("query")
+                        .short("e")
+                        .long("exact")
+                        .help("Perform an exact match"),
+                )
+                .arg(
+                    Arg::with_name("command")
+                        .multiple(false)
+                        .value_name("command")
+                        .raw(true)
+                        .required(true)
+                        .help("Run command"),
+                ),
+        )
 }
 
 fn run() -> Result<()> {
@@ -192,6 +227,16 @@ fn run() -> Result<()> {
                 config.query = query.to_owned();
             }
             local::remove(&config)
+        }
+        ("each", Some(m)) => {
+            config.profile = m.value_of("profile");
+            if let Some(query) = m.value_of("exact") {
+                config.query = query.to_owned();
+            }
+            config.dry_run = m.is_present("dry-run");
+            let cmd: Vec<&str> = m.values_of("command").unwrap().collect();
+            config.each_cmd = Some(&cmd);
+            local::each_exec(&config)
         }
         _ => unreachable!(),
     }

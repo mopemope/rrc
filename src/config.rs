@@ -19,6 +19,8 @@ pub struct Config<'a> {
     pub query: String,
     pub look: bool,
     pub profile: Option<&'a str>,
+    pub each_cmd: Option<&'a Vec<&'a str>>,
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -45,11 +47,15 @@ impl Default for Config<'_> {
         let query = String::new();
         let profile = None;
         let look = false;
+        let each_cmd = None;
+        let dry_run = false;
         Self {
             repos,
             query,
             look,
             profile,
+            each_cmd,
+            dry_run,
         }
     }
 }

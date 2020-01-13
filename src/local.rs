@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::utils::{chdir, confirm};
+use crate::utils::{chdir, confirm, run_with_work_dir};
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
 use anyhow::{Context, Result};
 use async_std::task;
@@ -168,7 +168,7 @@ fn walk_repository(root_path: &str, repos: &mut Arc<Mutex<Vec<LocalRepository>>>
     }
 
     for f in futures {
-        let _ = task::block_on(f)?;
+        task::block_on(f)?;
     }
 
     Ok(())
@@ -254,6 +254,23 @@ pub fn remove(config: &Config<'_>) -> Result<()> {
                 println!("removed {}", &repo.path);
             }
             println!();
+        }
+        Ok(())
+    })
+}
+
+pub fn each_exec(config: &Config<'_>) -> Result<()> {
+    each_repo(config, |config, repos| {
+        for repo in repos {
+            if let Some(cmd) = config.each_cmd {
+                if config.dry_run {
+                    println!("{} : dry-run {:?} ", &repo.path, &cmd);
+                } else {
+                    println!("{} : exec {:?} ", &repo.path, &cmd);
+                    run_with_work_dir(&cmd, &repo.path)?;
+                }
+                println!();
+            }
         }
         Ok(())
     })
