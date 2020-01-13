@@ -19,7 +19,7 @@ $ cargo install rrc
 `rrc` command is almost compatible with [ghq][1].
 
 ```
-rrc 0.1.0
+rrc 0.1.5
 A manage remote repository clones
 
 USAGE:
@@ -30,13 +30,14 @@ FLAGS:
     -V, --version    Prints version information
 
 OPTIONS:
-    -c, --config <FILE>    Set config file. [default: /home/user/rr.toml]
+    -c, --config <FILE>    Set config file.
 
 SUBCOMMANDS:
     get       Clone remote repository
     help      Prints this message or the help of the given subcommand(s)
     list      List local repositories
     look      Look local repository
+    remove    Remove local repositories
     update    Update local repositories
 ```
 
