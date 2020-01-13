@@ -168,7 +168,7 @@ fn walk_repository(root_path: &str, repos: &mut Arc<Mutex<Vec<LocalRepository>>>
     }
 
     for f in futures {
-        let _ = task::block_on(f);
+        let _ = task::block_on(f)?;
     }
 
     Ok(())
