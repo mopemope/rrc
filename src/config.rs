@@ -27,6 +27,12 @@ pub struct Config<'a> {
 pub struct RepositoryConfig {
     #[serde(default = "default_root")]
     pub root: String,
+    #[serde(default = "default_vec_str")]
+    pub hosts: Vec<String>,
+}
+
+fn default_vec_str() -> Vec<String> {
+    Vec::new()
 }
 
 fn default_root() -> String {
@@ -63,7 +69,8 @@ impl Default for Config<'_> {
 impl Default for RepositoryConfig {
     fn default() -> Self {
         let root = default_root();
-        Self { root }
+        let hosts = vec![];
+        Self { root, hosts }
     }
 }
 
