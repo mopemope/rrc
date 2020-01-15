@@ -44,5 +44,27 @@ SUBCOMMANDS:
 
 For how to use this tool, [ghq-handbook][2] will be helpful.
 
+## Config
+
+`rrc` provides a simple toml-style configuration file.
+
+The configuration file can set profile name in the section. You can then select a profile with command line options. And you can also set host filters. If you set a host filter, it will be enabled across profiles.
+
+```toml
+# default profile
+[default]
+# customize repo root path
+root = "~/repos"
+
+# personal profile
+[personal]
+# customize repo root path
+root = "~/personal_repos"
+# hosts filter. gitlab repository cloned '~/personal_repos'
+hosts = ["gitlab.com"]
+
+```
+
+
 [1]: https://github.com/motemen/ghq
 [2]: https://github.com/Songmu/ghq-handbook

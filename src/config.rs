@@ -21,12 +21,19 @@ pub struct Config<'a> {
     pub profile: Option<&'a str>,
     pub each_cmd: Option<&'a Vec<&'a str>>,
     pub dry_run: bool,
+    pub hosts: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RepositoryConfig {
     #[serde(default = "default_root")]
     pub root: String,
+    #[serde(default = "default_vec_str")]
+    pub hosts: Vec<String>,
+}
+
+fn default_vec_str() -> Vec<String> {
+    Vec::new()
 }
 
 fn default_root() -> String {
@@ -49,6 +56,7 @@ impl Default for Config<'_> {
         let look = false;
         let each_cmd = None;
         let dry_run = false;
+        let hosts = HashMap::new();
         Self {
             repos,
             query,
@@ -56,6 +64,7 @@ impl Default for Config<'_> {
             profile,
             each_cmd,
             dry_run,
+            hosts,
         }
     }
 }
@@ -63,7 +72,8 @@ impl Default for Config<'_> {
 impl Default for RepositoryConfig {
     fn default() -> Self {
         let root = default_root();
-        Self { root }
+        let hosts = vec![];
+        Self { root, hosts }
     }
 }
 
@@ -94,10 +104,19 @@ pub fn parse_config(path: &str) -> Result<Config> {
     let mut file = File::open(path)?;
     file.read_to_string(&mut config_toml)?;
 
-    let repos =
+    let repos: HashMap<String, RepositoryConfig> =
         from_str(&config_toml).with_context(|| format!("failed parse toml. path: {}", path))?;
 
+    for (_, repo_conf) in repos.iter() {
+        let root = &repo_conf.root;
+        for host in &repo_conf.hosts {
+            if !config.hosts.contains_key(host) {
+                config.hosts.insert(host.to_string(), root.to_owned());
+            }
+        }
+    }
     config.repos = repos;
+
     Ok(config)
 }
 

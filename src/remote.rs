@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::utils::chdir;
+use crate::utils::{chdir, expand_home};
 use crate::vcs::{detect_vcs, VCSOption};
 use anyhow::{Context, Error, Result};
 use lazy_static::lazy_static;
@@ -7,7 +7,7 @@ use log::debug;
 use regex::Regex;
 use std::fmt::{self, Debug};
 use std::fs::create_dir_all;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use url::Url;
 
@@ -78,13 +78,17 @@ impl fmt::Display for SSHPath {
     }
 }
 
-fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
+fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<VCSOption> {
+    let default_root = default_root.to_owned();
     let opt = if let Ok(url) = Url::parse(raw_url) {
         let url_path = Path::new(url.path());
         let host = url
             .host_str()
             .with_context(|| format!("unrecognized import path {}", raw_url))?;
-        let root = Path::new(root);
+
+        let root = config.hosts.get(host).unwrap_or(&default_root);
+        let root = expand_home(&root).context("failed expand home")?;
+
         let path = &url_path.to_str().context("failed to_str")?[1..];
         let mut dir = root.join(host).join(path);
         dir.set_extension("");
@@ -94,7 +98,8 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
             host: Some(host.to_owned()),
         }
     } else if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
-        let root = Path::new(root);
+        let root = config.hosts.get(&ssh_path.host).unwrap_or(&default_root);
+        let root = expand_home(&root).context("failed expand home")?;
         let mut dir = root.join(ssh_path.host()).join(ssh_path.path());
         dir.set_extension("");
         VCSOption {
@@ -116,7 +121,9 @@ fn parse_url(root: &str, raw_url: &str) -> Result<VCSOption> {
             .host_str()
             .with_context(|| format!("unrecognized import path {}", raw_url))?;
 
-        let root = Path::new(root);
+        let root = config.hosts.get(host).unwrap_or(&default_root);
+
+        let root = expand_home(root).context("failed expand home")?;
         let path = &url_path.to_str().context("failed to_str")?[1..];
         let mut dir = root.join(host).join(path);
         dir.set_extension("");
@@ -135,9 +142,9 @@ pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
     let profile = config.profile.unwrap_or("default");
     let repo_config = config.profile(profile)?;
     let root = &repo_config.root;
-    debug!("repos_root {}", root);
+    debug!("default repos_root {}", root);
 
-    let opt = parse_url(root, raw_url)?;
+    let opt = parse_url(config, root, raw_url)?;
     let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
 
     if update && Path::new(&opt.path).exists() {
@@ -176,7 +183,7 @@ pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
 }
 
 fn sync_repo(config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
-    let opt = parse_url(root, raw_url)?;
+    let opt = parse_url(config, root, raw_url)?;
     let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
     if Path::new(&opt.path).exists() {
         vcs.update(&opt)?;
