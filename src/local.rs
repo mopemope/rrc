@@ -3,6 +3,7 @@ use crate::utils::{chdir, confirm, run_with_work_dir};
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
 use anyhow::{Context, Result};
 use async_std::task;
+use log::error;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,7 +61,12 @@ fn find_sub_repositories(
     root: &Path,
     repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
-    let root = fs::read_dir(root)?;
+    let res = fs::read_dir(root);
+    if let Err(e) = res {
+        error!("{} path:{:?}", e, root);
+        return Ok(());
+    }
+    let root = res?;
     for entry in root {
         let entry = entry?;
         let path = entry.path();
@@ -84,7 +90,12 @@ async fn find_repositories(
     root: &Path,
     repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
-    let root = fs::read_dir(root)?;
+    let res = fs::read_dir(root);
+    if let Err(e) = res {
+        error!("{} path:{:?}", e, root);
+        return Ok(());
+    }
+    let root = res?;
     for entry in root {
         let entry = entry?;
         let path = entry.path();
@@ -109,7 +120,12 @@ async fn find_user_repositories(
     root: &Path,
     repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
-    let root = fs::read_dir(root)?;
+    let res = fs::read_dir(root);
+    if let Err(e) = res {
+        error!("{} path:{:?}", e, root);
+        return Ok(());
+    }
+    let root = res?;
     for entry in root {
         let entry = entry?;
         let path = entry.path();
@@ -132,7 +148,12 @@ async fn find_service_repositories(
     root: &Path,
     repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
 ) -> Result<()> {
-    let root = fs::read_dir(root)?;
+    let res = fs::read_dir(root);
+    if let Err(e) = res {
+        error!("{} path:{:?}", e, root);
+        return Ok(());
+    }
+    let root = res?;
     for entry in root {
         let entry = entry?;
         let path = entry.path();
@@ -147,7 +168,12 @@ async fn find_service_repositories(
 }
 
 fn walk_repository(root_path: &str, repos: &mut Arc<Mutex<Vec<LocalRepository>>>) -> Result<()> {
-    let root = fs::read_dir(root_path)?;
+    let res = fs::read_dir(root_path);
+    if let Err(e) = res {
+        error!("{} path:{:?}", e, root_path);
+        return Ok(());
+    }
+    let root = res?;
     let root_path = Arc::new(root_path.to_owned());
     let mut futures: Vec<task::JoinHandle<Result<()>>> = vec![];
 
@@ -373,6 +399,7 @@ mod tests {
 
     #[test]
     fn read_dir() {
+        env_logger::try_init();
         let root_path = "/home/ma2/repos";
         let root_path = canonicalize(root_path).unwrap();
         let result: Vec<LocalRepository> = vec![];
