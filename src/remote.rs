@@ -7,7 +7,7 @@ use log::debug;
 use regex::Regex;
 use std::fmt::{self, Debug};
 use std::fs::create_dir_all;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 use url::Url;
 
