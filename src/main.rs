@@ -11,7 +11,7 @@ use log::{debug, error};
 use std::env;
 
 lazy_static! {
-    pub static ref CONFIG_PATH: String = { config::get_config_path() };
+    pub static ref CONFIG_PATH: String = config::get_config_path();
 }
 
 fn make_app() -> App<'static, 'static> {

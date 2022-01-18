@@ -2,7 +2,7 @@
 name = "rrc"
 version = "0.1.10"
 authors = ["mopemope <yutaka.matsubara@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "A manage remote repository clones"
 homepage = "https://github.com/mopemope/rrc"
 repository = "https://github.com/mopemope/rrc"

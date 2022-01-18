@@ -10,7 +10,7 @@ use std::{env, path};
 use toml::from_str;
 
 lazy_static! {
-    pub static ref DEFAULT_REPO_ROOT: String = { default_root() };
+    pub static ref DEFAULT_REPO_ROOT: String = default_root();
 }
 
 #[derive(Debug, Clone)]
