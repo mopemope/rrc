@@ -5,7 +5,7 @@ mod utils;
 mod vcs;
 
 use anyhow::{Context, Result};
-use clap::{App, AppSettings, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, Command, SubCommand};
 use lazy_static::lazy_static;
 use log::{debug, error};
 use std::env;
@@ -14,8 +14,8 @@ lazy_static! {
     pub static ref CONFIG_PATH: String = config::get_config_path();
 }
 
-fn make_app() -> App<'static, 'static> {
-    App::new("rrc")
+fn make_app() -> App<'static> {
+    Command::new("rrc")
         .version(env!("CARGO_PKG_VERSION"))
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .about("A manage remote repository clones")
@@ -24,7 +24,7 @@ fn make_app() -> App<'static, 'static> {
                 .multiple(false)
                 .default_value(&CONFIG_PATH)
                 .value_name("FILE")
-                .short("c")
+                .short('c')
                 .long("config")
                 .help("Set config file"),
         )
@@ -35,21 +35,21 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("profile")
                         .multiple(false)
                         .value_name("profile")
-                        .short("p")
+                        .short('p')
                         .long("profile")
                         .help("Select profile"),
                 )
                 .arg(
                     Arg::with_name("update")
                         .multiple(false)
-                        .short("u")
+                        .short('u')
                         .long("update")
                         .help("Update local repository if cloned already"),
                 )
                 .arg(
                     Arg::with_name("look")
                         .multiple(false)
-                        .short("l")
+                        .short('l')
                         .long("look")
                         .help("Look after get"),
                 )
@@ -68,7 +68,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("profile")
                         .multiple(false)
                         .value_name("profile")
-                        .short("p")
+                        .short('p')
                         .long("profile")
                         .help("Select profile"),
                 )
@@ -76,7 +76,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("exact")
                         .multiple(false)
                         .value_name("query")
-                        .short("e")
+                        .short('e')
                         .long("exact")
                         .help("Perform an exact match"),
                 ),
@@ -88,7 +88,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("profile")
                         .multiple(false)
                         .value_name("profile")
-                        .short("p")
+                        .short('p')
                         .long("profile")
                         .help("Select profile"),
                 )
@@ -96,7 +96,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("exact")
                         .multiple(false)
                         .value_name("query")
-                        .short("e")
+                        .short('e')
                         .long("exact")
                         .help("Perform an exact match"),
                 ),
@@ -108,7 +108,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("profile")
                         .multiple(false)
                         .value_name("profile")
-                        .short("p")
+                        .short('p')
                         .long("profile")
                         .help("Select profile"),
                 )
@@ -127,7 +127,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("profile")
                         .multiple(false)
                         .value_name("profile")
-                        .short("p")
+                        .short('p')
                         .long("profile")
                         .help("Select profile"),
                 )
@@ -146,14 +146,14 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("profile")
                         .multiple(false)
                         .value_name("profile")
-                        .short("p")
+                        .short('p')
                         .long("profile")
                         .help("Select profile"),
                 )
                 .arg(
                     Arg::with_name("dry-run")
                         .multiple(false)
-                        .short("d")
+                        .short('d')
                         .long("dry-run")
                         .help("Dry run"),
                 )
@@ -161,7 +161,7 @@ fn make_app() -> App<'static, 'static> {
                     Arg::with_name("exact")
                         .multiple(false)
                         .value_name("query")
-                        .short("e")
+                        .short('e')
                         .long("exact")
                         .help("Perform an exact match"),
                 )
@@ -185,7 +185,7 @@ fn run() -> Result<()> {
     debug!("config_path {} config {:?}", config_path, config);
 
     match matches.subcommand() {
-        ("get", Some(m)) => {
+        Some(("get", m)) => {
             let urls = m.values_of("url").context("require repository url")?;
             let update = m.is_present("update");
             config.look = m.is_present("look");
@@ -200,35 +200,35 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
-        ("list", Some(m)) => {
+        Some(("list", m)) => {
             config.profile = m.value_of("profile");
             if let Some(query) = m.value_of("exact") {
                 config.query = query.to_owned();
             }
             local::list(&config)
         }
-        ("update", Some(m)) => {
+        Some(("update", m)) => {
             config.profile = m.value_of("profile");
             if let Some(query) = m.value_of("exact") {
                 config.query = query.to_owned();
             }
             local::update(&config)
         }
-        ("look", Some(m)) => {
+        Some(("look", m)) => {
             config.profile = m.value_of("profile");
             if let Some(query) = m.value_of("exact") {
                 config.query = query.to_owned();
             }
             local::look(&config)
         }
-        ("remove", Some(m)) => {
+        Some(("remove", m)) => {
             config.profile = m.value_of("profile");
             if let Some(query) = m.value_of("exact") {
                 config.query = query.to_owned();
             }
             local::remove(&config)
         }
-        ("each", Some(m)) => {
+        Some(("each", m)) => {
             config.profile = m.value_of("profile");
             if let Some(query) = m.value_of("exact") {
                 config.query = query.to_owned();
