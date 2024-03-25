@@ -11,18 +11,17 @@ readme = "README.md"
 license = "Apache-2.0"
 
 [dependencies]
-clap = "3"
+clap = { version = "3", features = ["std"], default-features = false }
 anyhow = "1"
 lazy_static = "1.4"
 log = "0.4"
-env_logger = "0.9"
-regex = "1"
+env_logger = { version = "0.9", default-features = false }
+regex = { version = "1", default-features = false }
 toml = "0.5"
-serde = "1"
+serde = { version = "1", default-features = false }
 serde_derive = "1"
 dirs = "4"
 url = "2.1"
-# async-std = { git = 'https://github.com/stjepang/async-std', branch = 'new-scheduler' }
 async-std = "1"
 
 [profile.dev]
