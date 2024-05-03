@@ -34,4 +34,4 @@ serde_derive = "1"
 dirs = "4"
 url = "2.1"
 # async-std = { git = 'https://github.com/stjepang/async-std', branch = 'new-scheduler' }
-async-std = "1"
+async-std = "1.12.0"
