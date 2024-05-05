@@ -22,7 +22,7 @@ incremental = false
 overflow-checks = false
 
 [dependencies]
-clap = "3"
+clap = "3.2.25"
 anyhow = "1"
 lazy_static = "1.4"
 log = "0.4"
