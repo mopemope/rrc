@@ -31,7 +31,7 @@ regex = "1"
 toml = "0.5"
 serde = "1"
 serde_derive = "1"
-dirs = "4"
+dirs = "5"
 url = "2.1"
 # async-std = { git = 'https://github.com/stjepang/async-std', branch = 'new-scheduler' }
 async-std = "1"
