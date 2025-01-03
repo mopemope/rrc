@@ -3,7 +3,7 @@ use crate::utils::{chdir, confirm, run_with_work_dir};
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
 use anyhow::{Context, Result};
 use async_std::task;
-use log::error;
+use log::debug;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,7 +63,7 @@ fn find_sub_repositories(
 ) -> Result<()> {
     let res = fs::read_dir(root);
     if let Err(e) = res {
-        error!("{} path:{:?}", e, root);
+        debug!("{} path:{:?}", e, root);
         return Ok(());
     }
     let root = res?;
@@ -92,7 +92,7 @@ async fn find_repositories(
 ) -> Result<()> {
     let res = fs::read_dir(root);
     if let Err(e) = res {
-        error!("{} path:{:?}", e, root);
+        debug!("{} path:{:?}", e, root);
         return Ok(());
     }
     let root = res?;
@@ -122,7 +122,7 @@ async fn find_user_repositories(
 ) -> Result<()> {
     let res = fs::read_dir(root);
     if let Err(e) = res {
-        error!("{} path:{:?}", e, root);
+        debug!("{} path:{:?}", e, root);
         return Ok(());
     }
     let root = res?;
@@ -150,7 +150,7 @@ async fn find_service_repositories(
 ) -> Result<()> {
     let res = fs::read_dir(root);
     if let Err(e) = res {
-        error!("{} path:{:?}", e, root);
+        debug!("{} path:{:?}", e, root);
         return Ok(());
     }
     let root = res?;
@@ -170,7 +170,7 @@ async fn find_service_repositories(
 fn walk_repository(root_path: &str, repos: &mut Arc<Mutex<Vec<LocalRepository>>>) -> Result<()> {
     let res = fs::read_dir(root_path);
     if let Err(e) = res {
-        error!("{} path:{:?}", e, root_path);
+        debug!("{} path:{:?}", e, root_path);
         return Ok(());
     }
     let root = res?;
