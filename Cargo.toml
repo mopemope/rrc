@@ -1,6 +1,6 @@
 [package]
 name = "rrc"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["mopemope <yutaka.matsubara@gmail.com>"]
 edition = "2021"
 description = "A manage remote repository clones"
