@@ -19,3 +19,22 @@ pub fn expand_home(path: &str) -> Option<PathBuf> {
         Some(path.to_path_buf())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_expand_home() {
+        // No expansion
+        assert_eq!(expand_home("/foo/bar").unwrap(), Path::new("/foo/bar"));
+
+        // ~ expansion
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(expand_home("~").unwrap(), home);
+
+        // ~/path expansion
+        assert_eq!(expand_home("~/foo").unwrap(), home.join("foo"));
+    }
+}

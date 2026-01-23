@@ -258,6 +258,53 @@ mod tests {
     use std::fs::canonicalize;
 
     #[test]
+    fn test_compute_score() {
+        assert!(compute_score("abc", "abc") < compute_score("abcd", "abc"));
+        assert!(compute_score("abcd", "abc") < compute_score("axbxc", "abc"));
+        assert!(compute_score("abc", "a") < compute_score("abc", "b"));
+    }
+
+    #[test]
+    fn test_fuzzy_search() {
+        let backend = VCSBackend::GitBackend;
+        let repos = vec![
+            LocalRepository {
+                path: "/path/to/repo1".to_string(),
+                relpath: "repo1".to_string(),
+                backend: backend.clone(),
+            },
+            LocalRepository {
+                path: "/path/to/foo/repo2".to_string(),
+                relpath: "foo/repo1".to_string(),
+                backend: backend.clone(),
+            },
+            LocalRepository {
+                path: "/path/to/bar/repo3".to_string(),
+                relpath: "bar/repo3".to_string(),
+                backend: backend.clone(),
+            },
+        ];
+        let fuzzy = FuzzyVec::from_vec(repos);
+
+        // Empty query returns all
+        assert_eq!(fuzzy.search("").len(), 3);
+
+        // Exact match
+        let results = fuzzy.search("repo3");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].relpath, "bar/repo3");
+
+        // Fuzzy match
+        let results = fuzzy.search("r1");
+        assert_eq!(results.len(), 2);
+
+        // Correct order (relpath: "repo1" should be higher score than "foo/repo1")
+        let results = fuzzy.search("repo1");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].relpath, "repo1");
+    }
+
+    #[test]
     fn read_dir() {
         let _ = env_logger::try_init();
         let root_path = "/home/ma2/repos";

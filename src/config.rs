@@ -129,3 +129,55 @@ pub fn get_config_path() -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_profile() {
+        let mut config = Config::default();
+        let repo_config = RepositoryConfig {
+            root: "/foo/bar".to_string(),
+            hosts: vec!["github.com".to_string()],
+        };
+        config.repos.insert("test".to_string(), repo_config);
+
+        let profile = config.profile("test").unwrap();
+        assert_eq!(profile.root, "/foo/bar");
+
+        assert!(config.profile("invalid").is_err());
+    }
+
+    #[test]
+    fn test_config_roots() {
+        let mut config = Config::default();
+        config.repos.clear();
+        config.repos.insert(
+            "a".to_string(),
+            RepositoryConfig {
+                root: "/root1".to_string(),
+                hosts: vec![],
+            },
+        );
+        config.repos.insert(
+            "b".to_string(),
+            RepositoryConfig {
+                root: "/root2".to_string(),
+                hosts: vec![],
+            },
+        );
+        config.repos.insert(
+            "c".to_string(),
+            RepositoryConfig {
+                root: "/root1".to_string(),
+                hosts: vec![],
+            },
+        );
+
+        let roots = config.roots();
+        assert_eq!(roots.len(), 2);
+        assert!(roots.contains(&"/root1".to_string()));
+        assert!(roots.contains(&"/root2".to_string()));
+    }
+}
