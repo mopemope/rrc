@@ -24,7 +24,7 @@ root = "{}"
     .unwrap();
 
     let status = Command::new("cargo")
-        .args(&["run", "--", "-c", config_path, "list"])
+        .args(["run", "--", "-c", config_path, "list"])
         .output()
         .expect("Failed to execute command");
 

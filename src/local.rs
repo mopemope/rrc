@@ -314,4 +314,26 @@ mod tests {
             println!("repos: {:?}", result);
         }
     }
+
+    #[test]
+    fn test_walk_repository() {
+        use std::fs::create_dir_all;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+
+        let repo1 = root.join("repo1");
+        create_dir_all(repo1.join(".git")).unwrap();
+
+        let sub = root.join("sub");
+        let repo2 = sub.join("repo2");
+        create_dir_all(repo2.join(".git")).unwrap();
+
+        let mut repos = Vec::new();
+        walk_repository(root.to_str().unwrap(), &mut repos).unwrap();
+
+        assert_eq!(repos.len(), 2);
+        let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
+        assert!(paths.contains(&"repo1".to_string()));
+        assert!(paths.contains(&"sub/repo2".to_string()));
+    }
 }
