@@ -9,7 +9,6 @@ use std::fmt::Debug;
 pub struct VCSOption {
     pub url: Option<String>,
     pub path: String,
-    pub host: Option<String>,
     // pub recursive: bool,
     // pub shallow: bool,
     // pub silent: bool,
