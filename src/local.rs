@@ -16,12 +16,6 @@ pub struct LocalRepository {
     pub backend: VCSBackend,
 }
 
-impl LocalRepository {
-    pub fn as_str(&self) -> &str {
-        self.path.as_ref()
-    }
-}
-
 impl Debug for LocalRepository {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.debug_struct("LocalRepository")
@@ -133,7 +127,6 @@ pub fn update(config: &Config<'_>) -> Result<()> {
             let opt = VCSOption {
                 url: None,
                 path: repo.path.clone(),
-                host: None,
             };
             println!("update {}", &opt.path);
             if let Err(e) = repo.backend.update(&opt) {
@@ -202,32 +195,9 @@ struct FuzzyVec {
 }
 
 impl FuzzyVec {
-    /// Creates a `FuzzyVec`.
-    pub fn new() -> FuzzyVec {
-        FuzzyVec {
-            entries: Vec::new(),
-        }
-    }
-
     /// Creates a `FuzzyVec` from `entries`.
     pub fn from_vec(entries: Vec<LocalRepository>) -> FuzzyVec {
         FuzzyVec { entries }
-    }
-
-    /// Returns the number of entiries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    // Clears the contents.
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-
-    /// appends a entry.
-    pub fn append(&mut self, entry: LocalRepository) {
-        self.entries.push(entry);
     }
 
     /// Searches entiries for `query` in a fuzzy way and returns the result
@@ -269,7 +239,7 @@ fn fuzzy_search<'a>(entries: &'a [LocalRepository], query: &str) -> Vec<&'a Loca
 
 /// Computes the similarity. Lower is more similar.
 fn compute_score(entry: &str, query: &str) -> u8 {
-    let mut score = std::u8::MAX;
+    let mut score = u8::MAX;
 
     if entry == query {
         score -= 100;
@@ -289,7 +259,7 @@ mod tests {
 
     #[test]
     fn read_dir() {
-        env_logger::try_init();
+        let _ = env_logger::try_init();
         let root_path = "/home/ma2/repos";
         if let Ok(root_path) = canonicalize(root_path) {
             let mut result: Vec<LocalRepository> = vec![];

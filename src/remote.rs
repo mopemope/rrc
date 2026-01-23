@@ -24,10 +24,6 @@ struct SSHPath {
 }
 
 impl SSHPath {
-    pub fn user(&self) -> &str {
-        &self.user
-    }
-
     pub fn host(&self) -> &str {
         &self.host
     }
@@ -95,7 +91,6 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
         VCSOption {
             url: Some(raw_url.to_owned()),
             path: dir.to_str().context("failed to str")?.to_owned(),
-            host: Some(host.to_owned()),
         }
     } else if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
         let root = config.hosts.get(&ssh_path.host).unwrap_or(&default_root);
@@ -105,7 +100,6 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
         VCSOption {
             url: Some(raw_url.to_owned()),
             path: dir.to_str().context("failed to str")?.to_owned(),
-            host: Some(ssh_path.host),
         }
     } else {
         let size = raw_url.split('/').count();
@@ -131,7 +125,6 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
         VCSOption {
             url: Some(raw_url.to_owned()),
             path: dir.to_str().context("failed to str")?.to_owned(),
-            host: Some(host.to_owned()),
         }
     };
     debug!("{:?}", opt);
@@ -196,6 +189,4 @@ fn sync_repo(config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-}
+mod tests {}
