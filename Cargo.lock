@@ -985,6 +985,7 @@ dependencies = [
  "jwalk",
  "lazy_static",
  "log",
+ "rayon",
  "regex",
  "serde",
  "serde_derive",
