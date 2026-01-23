@@ -95,7 +95,7 @@ impl Config<'_> {
     }
 }
 
-pub fn parse_config(path: &str) -> Result<Config> {
+pub fn parse_config(path: &str) -> Result<Config<'_>> {
     let mut config: Config = Default::default();
     if !path::Path::new(path).exists() {
         return Ok(config);

@@ -1,0 +1,2 @@
+[default]
+root = "tests/test_repos"

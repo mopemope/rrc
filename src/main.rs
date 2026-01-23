@@ -176,7 +176,7 @@ fn make_app() -> App<'static> {
         )
 }
 
-fn run() -> Result<()> {
+async fn run() -> Result<()> {
     let app = make_app();
     let matches = app.get_matches();
     let config_path = matches.value_of("config").unwrap();
@@ -242,9 +242,10 @@ fn run() -> Result<()> {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
-    if let Err(err) = run() {
+    if let Err(err) = run().await {
         error!("{}", err);
     }
 }

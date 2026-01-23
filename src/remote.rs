@@ -87,7 +87,7 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
             .with_context(|| format!("unrecognized import path {}", raw_url))?;
 
         let root = config.hosts.get(host).unwrap_or(&default_root);
-        let root = expand_home(&root).context("failed expand home")?;
+        let root = expand_home(root).context("failed expand home")?;
 
         let path = &url_path.to_str().context("failed to_str")?[1..];
         let mut dir = root.join(host).join(path);
@@ -99,7 +99,7 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
         }
     } else if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
         let root = config.hosts.get(&ssh_path.host).unwrap_or(&default_root);
-        let root = expand_home(&root).context("failed expand home")?;
+        let root = expand_home(root).context("failed expand home")?;
         let mut dir = root.join(ssh_path.host()).join(ssh_path.path());
         dir.set_extension("");
         VCSOption {
@@ -173,7 +173,7 @@ pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
         }
     } else {
         for root in config.roots() {
-            if sync_repo(config, &root, raw_url)? {
+            if sync_repo(config, root, raw_url)? {
                 return Ok(());
             }
         }
