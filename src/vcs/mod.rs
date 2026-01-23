@@ -50,5 +50,7 @@ pub fn detect_vcs(url: &str) -> Result<VCSBackend> {
 pub fn detect_vcs_from_path(path: &str) -> Option<VCSBackend> {
     if let Some(backend) = git::from_path(path) {
         Some(backend)
-    } else { hg::from_path(path).map(|backend| backend) }
+    } else {
+        hg::from_path(path)
+    }
 }
