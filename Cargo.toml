@@ -22,7 +22,9 @@ serde = { version = "1", default-features = false }
 serde_derive = "1"
 dirs = "5"
 url = "2.1"
-async-std = "1"
+tokio = { version = "1", features = ["full"] }
+jwalk = "0.8"
+rayon = "1"
 
 [profile.dev]
 debug = 0

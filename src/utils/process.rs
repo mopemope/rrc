@@ -3,7 +3,7 @@ use std::env;
 use std::process::{Command, Stdio};
 
 pub fn run_silently(cmd: &[&str]) -> Result<bool> {
-    let mut cmd = Command::new(&cmd[0])
+    let mut cmd = Command::new(cmd[0])
         .args(&cmd[1..])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -14,7 +14,7 @@ pub fn run_silently(cmd: &[&str]) -> Result<bool> {
 }
 
 pub fn run(cmd: &[&str]) -> Result<bool> {
-    let mut cmd = Command::new(&cmd[0])
+    let mut cmd = Command::new(cmd[0])
         .args(&cmd[1..])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -24,7 +24,7 @@ pub fn run(cmd: &[&str]) -> Result<bool> {
 }
 
 pub fn run_with_work_dir(cmd: &[&str], dir: &str) -> Result<bool> {
-    let mut cmd = Command::new(&cmd[0])
+    let mut cmd = Command::new(cmd[0])
         .args(&cmd[1..])
         .current_dir(dir)
         .stdout(Stdio::inherit())

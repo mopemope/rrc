@@ -1,12 +1,12 @@
 use crate::config::Config;
 use crate::utils::{chdir, confirm, run_with_work_dir};
 use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
-use anyhow::{Context, Result};
-use async_std::task;
-use log::debug;
+use anyhow::Result;
+use jwalk::WalkDir;
+use log::error;
+use rayon::prelude::*;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -31,192 +31,76 @@ impl Debug for LocalRepository {
     }
 }
 
-fn find_repository(
-    root_path: Arc<String>,
-    path: &PathBuf,
-    entry: fs::DirEntry,
-) -> Result<Option<LocalRepository>> {
-    if let Some(file_name) = entry.file_name().to_str() {
-        if let Some(backend) = detect_vcs_from_path(file_name) {
-            let path = fs::canonicalize(&path)?;
-            let path = path
-                .parent()
-                .context("failed get parent")?
-                .to_str()
-                .context("failed get parent")?
-                .to_owned();
-            let relpath = path[root_path.len() + 1..].to_owned();
-            return Ok(Some(LocalRepository {
-                path,
-                relpath,
-                backend,
-            }));
-        }
-    }
-    Ok(None)
-}
-
-fn find_sub_repositories(
-    root_path: Arc<String>,
-    root: &Path,
-    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
-) -> Result<()> {
-    let res = fs::read_dir(root);
-    if let Err(e) = res {
-        debug!("{} path:{:?}", e, root);
+fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<()> {
+    if let Err(e) = fs::metadata(root_path) {
+        error!("{} path:{:?}", e, root_path);
         return Ok(());
     }
-    let root = res?;
-    for entry in root {
-        let entry = entry?;
-        let path = entry.path();
-        let metadata = fs::metadata(&path)?;
-        if metadata.is_file() {
-            continue;
-        }
-        if let Some(repo) = find_repository(Arc::clone(&root_path), &path, entry)? {
-            let mut repos = repos.lock().unwrap();
-            repos.push(repo);
-            return Ok(());
-        } else {
-            find_sub_repositories(Arc::clone(&root_path), &path, repos)?;
-        }
-    }
-    Ok(())
-}
 
-async fn find_repositories(
-    root_path: Arc<String>,
-    root: &Path,
-    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
-) -> Result<()> {
-    let res = fs::read_dir(root);
-    if let Err(e) = res {
-        debug!("{} path:{:?}", e, root);
-        return Ok(());
-    }
-    let root = res?;
-    for entry in root {
-        let entry = entry?;
-        let path = entry.path();
-        let metadata = fs::metadata(&path)?;
-        if metadata.is_file() {
-            continue;
-        }
-        if let Some(repo) = find_repository(Arc::clone(&root_path), &path, entry)? {
-            let mut repos = repos.lock().unwrap();
-            repos.push(repo);
-            return Ok(());
-        } else {
-            find_sub_repositories(Arc::clone(&root_path), &path, repos)?;
-        }
-    }
+    let repos_mutex = Arc::new(Mutex::new(Vec::new()));
+    let root_path_string = root_path.to_owned();
+    let repos_clone = repos_mutex.clone();
 
-    Ok(())
-}
+    WalkDir::new(root_path)
+        .skip_hidden(false)
+        .process_read_dir(move |_depth, path, _state, children| {
+            let mut found_backend = None;
+            for child in children.iter().flatten() {
+                if let Some(name) = child.file_name().to_str() {
+                    if let Some(backend) = detect_vcs_from_path(name) {
+                        found_backend = Some(backend);
+                        break;
+                    }
+                }
+            }
 
-async fn find_user_repositories(
-    root_path: Arc<String>,
-    root: &Path,
-    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
-) -> Result<()> {
-    let res = fs::read_dir(root);
-    if let Err(e) = res {
-        debug!("{} path:{:?}", e, root);
-        return Ok(());
-    }
-    let root = res?;
-    for entry in root {
-        let entry = entry?;
-        let path = entry.path();
-        let metadata = fs::metadata(&path)?;
-        if metadata.is_file() {
-            continue;
-        }
-        if let Some(repo) = find_repository(Arc::clone(&root_path), &path, entry)? {
-            let mut repos = repos.lock().unwrap();
-            repos.push(repo);
-            return Ok(());
-        }
-        find_repositories(Arc::clone(&root_path), &path, repos).await?;
-    }
-    Ok(())
-}
+            if let Some(backend) = found_backend {
+                if let Ok(mut g) = repos_clone.lock() {
+                    // Use std::path::Path to calculate relative path safely
+                    if let Ok(rel) = path.strip_prefix(&root_path_string) {
+                        if let Some(rel_str) = rel.to_str() {
+                            g.push(LocalRepository {
+                                path: path.to_str().unwrap_or("").to_owned(),
+                                relpath: rel_str.to_owned(),
+                                backend,
+                            });
+                        }
+                    }
+                }
 
-async fn find_service_repositories(
-    root_path: Arc<String>,
-    root: &Path,
-    repos: &mut Arc<Mutex<Vec<LocalRepository>>>,
-) -> Result<()> {
-    let res = fs::read_dir(root);
-    if let Err(e) = res {
-        debug!("{} path:{:?}", e, root);
-        return Ok(());
-    }
-    let root = res?;
-    for entry in root {
-        let entry = entry?;
-        let path = entry.path();
-        let metadata = fs::metadata(&path)?;
-        if metadata.is_file() {
-            continue;
-        }
-        find_user_repositories(Arc::clone(&root_path), &path, &mut Arc::clone(&repos)).await?;
-    }
+                // Prune VCS directories to avoid recursion
+                children.retain(|c| {
+                    if let Ok(child) = c {
+                        if let Some(name) = child.file_name().to_str() {
+                            if detect_vcs_from_path(name).is_some() {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                });
+            }
+        })
+        .into_iter()
+        .for_each(|_| {});
 
-    Ok(())
-}
-
-fn walk_repository(root_path: &str, repos: &mut Arc<Mutex<Vec<LocalRepository>>>) -> Result<()> {
-    let res = fs::read_dir(root_path);
-    if let Err(e) = res {
-        debug!("{} path:{:?}", e, root_path);
-        return Ok(());
-    }
-    let root = res?;
-    let root_path = Arc::new(root_path.to_owned());
-    let mut futures: Vec<task::JoinHandle<Result<()>>> = vec![];
-
-    for entry in root {
-        let entry = entry?;
-        let path = entry.path();
-        let metadata = fs::metadata(&path)?;
-        if metadata.is_file() {
-            continue;
-        }
-
-        let repos = Arc::clone(&repos);
-        let root_path = Arc::clone(&root_path);
-        let f = task::spawn(async move {
-            find_service_repositories(Arc::clone(&root_path), &path, &mut Arc::clone(&repos)).await
-        });
-        futures.push(f);
-    }
-
-    for f in futures {
-        task::block_on(f)?;
-    }
-
+    let mut found = repos_mutex.lock().unwrap();
+    repos.append(&mut found);
     Ok(())
 }
 
 fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>> {
-    let result: Vec<LocalRepository> = vec![];
-    let mut result: Arc<Mutex<Vec<LocalRepository>>> = Arc::new(Mutex::new(result));
-
+    let mut result: Vec<LocalRepository> = vec![];
     for root in config.roots() {
         walk_repository(root, &mut result)?;
     }
-    let result = result.lock().unwrap().to_vec();
     Ok(result)
 }
 
 fn list_repos(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>> {
     let repo_config = config.profile(profile)?;
-    let result: Vec<LocalRepository> = vec![];
-    let mut result: Arc<Mutex<Vec<LocalRepository>>> = Arc::new(Mutex::new(result));
+    let mut result: Vec<LocalRepository> = vec![];
     walk_repository(&repo_config.root, &mut result)?;
-    let result = result.lock().unwrap().to_vec();
     Ok(result)
 }
 
@@ -245,16 +129,17 @@ pub fn list(config: &Config<'_>) -> Result<()> {
 
 pub fn update(config: &Config<'_>) -> Result<()> {
     each_repo(config, |_, repos| {
-        for repo in repos {
+        repos.par_iter().for_each(|repo| {
             let opt = VCSOption {
                 url: None,
                 path: repo.path.clone(),
                 host: None,
             };
             println!("update {}", &opt.path);
-            repo.backend.update(&opt)?;
-            println!();
-        }
+            if let Err(e) = repo.backend.update(&opt) {
+                error!("Failed to update {}: {}", &repo.path, e);
+            }
+        });
         Ok(())
     })
 }
@@ -287,15 +172,20 @@ pub fn remove(config: &Config<'_>) -> Result<()> {
 
 pub fn each_exec(config: &Config<'_>) -> Result<()> {
     each_repo(config, |config, repos| {
-        for repo in repos {
-            if let Some(cmd) = config.each_cmd {
-                if config.dry_run {
+        if let Some(cmd) = config.each_cmd {
+            let cmd_owned: Vec<String> = cmd.iter().map(|s| s.to_string()).collect();
+            if config.dry_run {
+                for repo in repos {
                     println!("{} : dry-run {:?} ", &repo.path, &cmd);
-                } else {
-                    println!("{} : exec {:?} ", &repo.path, &cmd);
-                    run_with_work_dir(&cmd, &repo.path)?;
                 }
-                println!();
+            } else {
+                repos.par_iter().for_each(|repo| {
+                    let cmd_refs: Vec<&str> = cmd_owned.iter().map(|s| s.as_str()).collect();
+                    println!("{} : exec {:?} ", &repo.path, &cmd_refs);
+                    if let Err(e) = run_with_work_dir(&cmd_refs, &repo.path) {
+                        error!("Failed to exec in {}: {}", &repo.path, e);
+                    }
+                });
             }
         }
         Ok(())
@@ -401,10 +291,10 @@ mod tests {
     fn read_dir() {
         env_logger::try_init();
         let root_path = "/home/ma2/repos";
-        let root_path = canonicalize(root_path).unwrap();
-        let result: Vec<LocalRepository> = vec![];
-        let mut result: Arc<Mutex<Vec<LocalRepository>>> = Arc::new(Mutex::new(result));
-        walk_repository(root_path.to_str().unwrap(), &mut result).unwrap();
-        println!("repos: {:?}", result);
+        if let Ok(root_path) = canonicalize(root_path) {
+            let mut result: Vec<LocalRepository> = vec![];
+            walk_repository(root_path.to_str().unwrap(), &mut result).unwrap();
+            println!("repos: {:?}", result);
+        }
     }
 }
