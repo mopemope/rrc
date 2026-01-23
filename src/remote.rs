@@ -189,4 +189,49 @@ fn sync_repo(config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    #[test]
+    fn test_ssh_path_from_str() {
+        let path: SSHPath = "git@github.com:mopemope/rrc.git".parse().unwrap();
+        assert_eq!(path.user, "git");
+        assert_eq!(path.host, "github.com");
+        assert_eq!(path.path, "mopemope/rrc");
+
+        let path: SSHPath = "github.com:mopemope/rrc".parse().unwrap();
+        assert_eq!(path.user, "git");
+        assert_eq!(path.host, "github.com");
+        assert_eq!(path.path, "mopemope/rrc");
+
+        let path: SSHPath = "user@host:path/to/repo".parse().unwrap();
+        assert_eq!(path.user, "user");
+        assert_eq!(path.host, "host");
+        assert_eq!(path.path, "path/to/repo");
+    }
+
+    #[test]
+    fn test_parse_url() {
+        let mut config = Config::default();
+        config
+            .hosts
+            .insert("github.com".to_string(), "~/gh/src".to_string());
+        let default_root = "/tmp/repos";
+
+        // HTTPS URL
+        let opt = parse_url(&config, default_root, "https://github.com/mopemope/rrc").unwrap();
+        assert_eq!(opt.url, Some("https://github.com/mopemope/rrc".to_string()));
+        assert!(opt.path.contains("github.com/mopemope/rrc"));
+
+        // Git SCP-like URL
+        let opt = parse_url(&config, default_root, "git@github.com:mopemope/rrc.git").unwrap();
+        assert_eq!(opt.url, Some("git@github.com:mopemope/rrc.git".to_string()));
+        assert!(opt.path.contains("github.com/mopemope/rrc"));
+
+        // Short GitHub URL
+        let opt = parse_url(&config, default_root, "mopemope/rrc").unwrap();
+        assert_eq!(opt.url, Some("https://github.com/mopemope/rrc".to_string()));
+        assert!(opt.path.contains("github.com/mopemope/rrc"));
+    }
+}

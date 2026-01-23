@@ -53,3 +53,33 @@ pub fn detect_vcs_from_path(path: &str) -> Option<VCSBackend> {
         hg::from_path(path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_vcs() {
+        assert!(matches!(
+            detect_vcs("https://github.com/user/repo").unwrap(),
+            VCSBackend::GitBackend
+        ));
+        assert!(matches!(
+            detect_vcs("https://gitlab.com/user/repo").unwrap(),
+            VCSBackend::GitBackend
+        ));
+    }
+
+    #[test]
+    fn test_detect_vcs_from_path() {
+        assert!(matches!(
+            detect_vcs_from_path(".git").unwrap(),
+            VCSBackend::GitBackend
+        ));
+        assert!(matches!(
+            detect_vcs_from_path(".hg").unwrap(),
+            VCSBackend::MercurialBackend
+        ));
+        assert!(detect_vcs_from_path("invalid").is_none());
+    }
+}
