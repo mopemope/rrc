@@ -37,7 +37,7 @@ fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<
 
     WalkDir::new(root_path)
         .skip_hidden(false)
-        .process_read_dir(move |_depth, path, _state, children| {
+        .process_read_dir(move |depth, path, _state, children| {
             let mut found_backend = None;
             for child in children.iter().flatten() {
                 if let Some(name) = child.file_name().to_str() {
@@ -62,17 +62,29 @@ fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<
                     }
                 }
 
-                // Prune VCS directories to avoid recursion
-                children.retain(|c| {
-                    if let Ok(child) = c {
-                        if let Some(name) = child.file_name().to_str() {
-                            if detect_vcs_from_path(name).is_some() {
-                                return false;
-                            }
-                        }
+                // Stop descending once this directory is identified as a repository.
+                for child in children.iter_mut().flatten() {
+                    child.read_children_path = None;
+                }
+                return;
+            }
+
+            // jwalk invokes process_read_dir once for the synthetic root entry (depth: None).
+            // Hidden-directory pruning should only apply to actual directory contents.
+            if depth.is_none() {
+                return;
+            }
+
+            // Skip recursing into hidden directories (except VCS markers like .git/.hg).
+            for child in children.iter_mut().flatten() {
+                if let Some(name) = child.file_name().to_str() {
+                    if detect_vcs_from_path(name).is_some() {
+                        continue;
                     }
-                    true
-                });
+                    if name.starts_with('.') && child.file_type.is_dir() {
+                        child.read_children_path = None;
+                    }
+                }
             }
         })
         .into_iter()
@@ -335,5 +347,45 @@ mod tests {
         let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
         assert!(paths.contains(&"repo1".to_string()));
         assert!(paths.contains(&"sub/repo2".to_string()));
+    }
+
+    #[test]
+    fn test_walk_repository_prunes_nested_repositories() {
+        use std::fs::create_dir_all;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+
+        create_dir_all(root.join("repo1/.git")).unwrap();
+        create_dir_all(root.join("repo1/nested/.git")).unwrap();
+        create_dir_all(root.join("outside/repo2/.git")).unwrap();
+
+        let mut repos = Vec::new();
+        walk_repository(root.to_str().unwrap(), &mut repos).unwrap();
+
+        let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&"repo1".to_string()));
+        assert!(paths.contains(&"outside/repo2".to_string()));
+        assert!(!paths.contains(&"repo1/nested".to_string()));
+    }
+
+    #[test]
+    fn test_walk_repository_skips_hidden_directories() {
+        use std::fs::create_dir_all;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+
+        create_dir_all(root.join(".cache/repo_hidden/.git")).unwrap();
+        create_dir_all(root.join("visible/repo1/.git")).unwrap();
+        create_dir_all(root.join("visible/.tmp/repo_hidden2/.git")).unwrap();
+
+        let mut repos = Vec::new();
+        walk_repository(root.to_str().unwrap(), &mut repos).unwrap();
+
+        let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
+        assert_eq!(paths.len(), 1);
+        assert!(paths.contains(&"visible/repo1".to_string()));
+        assert!(!paths.contains(&".cache/repo_hidden".to_string()));
+        assert!(!paths.contains(&"visible/.tmp/repo_hidden2".to_string()));
     }
 }
