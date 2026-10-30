@@ -4,195 +4,125 @@ mod remote;
 mod utils;
 mod vcs;
 
-use anyhow::{Context, Result};
-use clap::{App, AppSettings, Arg, Command, SubCommand};
-use lazy_static::lazy_static;
+use anyhow::Result;
+use clap::{Parser, Subcommand};
 use log::{debug, error};
-use std::env;
 
-lazy_static! {
-    pub static ref CONFIG_PATH: String = config::get_config_path();
+#[derive(Debug, Parser)]
+#[command(
+    name = "rrc",
+    version,
+    about = "A manage remote repository clones",
+    arg_required_else_help = true
+)]
+struct Cli {
+    /// Set config file
+    #[arg(short, long, value_name = "FILE", default_value_t = config::get_config_path())]
+    config: String,
+
+    #[command(subcommand)]
+    command: Commands,
 }
 
-fn make_app() -> App<'static> {
-    Command::new("rrc")
-        .version(env!("CARGO_PKG_VERSION"))
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .about("A manage remote repository clones")
-        .arg(
-            Arg::with_name("config")
-                .multiple(false)
-                .default_value(&CONFIG_PATH)
-                .value_name("FILE")
-                .short('c')
-                .long("config")
-                .help("Set config file"),
-        )
-        .subcommand(
-            SubCommand::with_name("get")
-                .about("Clone remote repository")
-                .arg(
-                    Arg::with_name("profile")
-                        .multiple(false)
-                        .value_name("profile")
-                        .short('p')
-                        .long("profile")
-                        .help("Select profile"),
-                )
-                .arg(
-                    Arg::with_name("update")
-                        .multiple(false)
-                        .short('u')
-                        .long("update")
-                        .help("Update local repository if cloned already"),
-                )
-                .arg(
-                    Arg::with_name("look")
-                        .multiple(false)
-                        .short('l')
-                        .long("look")
-                        .help("Look after get"),
-                )
-                .arg(
-                    Arg::with_name("url")
-                        .required(true)
-                        .multiple(true)
-                        .value_name("repository url")
-                        .help("Source repository url"),
-                ),
-        )
-        .subcommand(
-            SubCommand::with_name("list")
-                .about("List local repositories")
-                .arg(
-                    Arg::with_name("profile")
-                        .multiple(false)
-                        .value_name("profile")
-                        .short('p')
-                        .long("profile")
-                        .help("Select profile"),
-                )
-                .arg(
-                    Arg::with_name("exact")
-                        .multiple(false)
-                        .value_name("query")
-                        .short('e')
-                        .long("exact")
-                        .help("Perform an exact match"),
-                ),
-        )
-        .subcommand(
-            SubCommand::with_name("update")
-                .about("Update local repositories")
-                .arg(
-                    Arg::with_name("profile")
-                        .multiple(false)
-                        .value_name("profile")
-                        .short('p')
-                        .long("profile")
-                        .help("Select profile"),
-                )
-                .arg(
-                    Arg::with_name("exact")
-                        .multiple(false)
-                        .value_name("query")
-                        .short('e')
-                        .long("exact")
-                        .help("Perform an exact match"),
-                ),
-        )
-        .subcommand(
-            SubCommand::with_name("look")
-                .about("Look local repository")
-                .arg(
-                    Arg::with_name("profile")
-                        .multiple(false)
-                        .value_name("profile")
-                        .short('p')
-                        .long("profile")
-                        .help("Select profile"),
-                )
-                .arg(
-                    Arg::with_name("exact")
-                        .multiple(false)
-                        .required(true)
-                        .value_name("query")
-                        .help("Perform an exact match"),
-                ),
-        )
-        .subcommand(
-            SubCommand::with_name("remove")
-                .about("Remove local repositories")
-                .arg(
-                    Arg::with_name("profile")
-                        .multiple(false)
-                        .value_name("profile")
-                        .short('p')
-                        .long("profile")
-                        .help("Select profile"),
-                )
-                .arg(
-                    Arg::with_name("exact")
-                        .multiple(false)
-                        .required(true)
-                        .value_name("query")
-                        .help("Perform an exact match"),
-                ),
-        )
-        .subcommand(
-            SubCommand::with_name("each")
-                .about("Execute command for each local repositories")
-                .arg(
-                    Arg::with_name("profile")
-                        .multiple(false)
-                        .value_name("profile")
-                        .short('p')
-                        .long("profile")
-                        .help("Select profile"),
-                )
-                .arg(
-                    Arg::with_name("dry-run")
-                        .multiple(false)
-                        .short('d')
-                        .long("dry-run")
-                        .help("Dry run"),
-                )
-                .arg(
-                    Arg::with_name("exact")
-                        .multiple(false)
-                        .value_name("query")
-                        .short('e')
-                        .long("exact")
-                        .help("Perform an exact match"),
-                )
-                .arg(
-                    Arg::with_name("command")
-                        .multiple(false)
-                        .value_name("command")
-                        .raw(true)
-                        .required(true)
-                        .help("Run command"),
-                ),
-        )
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Clone remote repository
+    Get {
+        /// Select profile
+        #[arg(short, long, value_name = "profile")]
+        profile: Option<String>,
+
+        /// Update local repository if cloned already
+        #[arg(short, long)]
+        update: bool,
+
+        /// Look after get
+        #[arg(short, long)]
+        look: bool,
+
+        /// Source repository url
+        #[arg(required = true, value_name = "repository url")]
+        url: Vec<String>,
+    },
+    /// List local repositories
+    List {
+        /// Select profile
+        #[arg(short, long, value_name = "profile")]
+        profile: Option<String>,
+
+        /// Perform an exact match
+        #[arg(short, long, value_name = "query")]
+        exact: Option<String>,
+    },
+    /// Update local repositories
+    Update {
+        /// Select profile
+        #[arg(short, long, value_name = "profile")]
+        profile: Option<String>,
+
+        /// Perform an exact match
+        #[arg(short, long, value_name = "query")]
+        exact: Option<String>,
+    },
+    /// Look local repository
+    Look {
+        /// Select profile
+        #[arg(short, long, value_name = "profile")]
+        profile: Option<String>,
+
+        /// Perform an exact match
+        #[arg(value_name = "query")]
+        exact: String,
+    },
+    /// Remove local repositories
+    Remove {
+        /// Select profile
+        #[arg(short, long, value_name = "profile")]
+        profile: Option<String>,
+
+        /// Perform an exact match
+        #[arg(value_name = "query")]
+        exact: String,
+    },
+    /// Execute command for each local repositories
+    Each {
+        /// Select profile
+        #[arg(short, long, value_name = "profile")]
+        profile: Option<String>,
+
+        /// Dry run
+        #[arg(short, long)]
+        dry_run: bool,
+
+        /// Perform an exact match
+        #[arg(short, long, value_name = "query")]
+        exact: Option<String>,
+
+        /// Run command
+        #[arg(raw = true, required = true, value_name = "command")]
+        command: Vec<String>,
+    },
 }
 
-async fn run() -> Result<()> {
-    let app = make_app();
-    let matches = app.get_matches();
-    let config_path = matches.value_of("config").unwrap();
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+    let config_path = &cli.config;
 
     let mut config = config::parse_config(config_path)?;
-    debug!("config_path {} config {:?}", config_path, config);
+    debug!("config_path {config_path} config {config:?}");
 
-    match matches.subcommand() {
-        Some(("get", m)) => {
-            let urls = m.values_of("url").context("require repository url")?;
-            let update = m.is_present("update");
-            config.look = m.is_present("look");
-            config.profile = m.value_of("profile");
-            for url in urls {
-                debug!("repository url {}", url);
-                if update {
+    match &cli.command {
+        Commands::Get {
+            profile,
+            update,
+            look,
+            url,
+        } => {
+            config.look = *look;
+            config.profile = profile.as_deref();
+            for url in url {
+                debug!("repository url {url}");
+                if *update {
                     remote::update_or_get(&config, url)?;
                 } else {
                     remote::get(&config, url, false)?;
@@ -200,52 +130,82 @@ async fn run() -> Result<()> {
             }
             Ok(())
         }
-        Some(("list", m)) => {
-            config.profile = m.value_of("profile");
-            if let Some(query) = m.value_of("exact") {
+        Commands::List { profile, exact } => {
+            config.profile = profile.as_deref();
+            if let Some(query) = exact {
                 config.query = query.to_owned();
             }
             local::list(&config)
         }
-        Some(("update", m)) => {
-            config.profile = m.value_of("profile");
-            if let Some(query) = m.value_of("exact") {
+        Commands::Update { profile, exact } => {
+            config.profile = profile.as_deref();
+            if let Some(query) = exact {
                 config.query = query.to_owned();
             }
             local::update(&config)
         }
-        Some(("look", m)) => {
-            config.profile = m.value_of("profile");
-            if let Some(query) = m.value_of("exact") {
-                config.query = query.to_owned();
-            }
+        Commands::Look { profile, exact } => {
+            config.profile = profile.as_deref();
+            config.query = exact.to_owned();
             local::look(&config)
         }
-        Some(("remove", m)) => {
-            config.profile = m.value_of("profile");
-            if let Some(query) = m.value_of("exact") {
-                config.query = query.to_owned();
-            }
+        Commands::Remove { profile, exact } => {
+            config.profile = profile.as_deref();
+            config.query = exact.to_owned();
             local::remove(&config)
         }
-        Some(("each", m)) => {
-            config.profile = m.value_of("profile");
-            if let Some(query) = m.value_of("exact") {
+        Commands::Each {
+            profile,
+            dry_run,
+            exact,
+            command,
+        } => {
+            config.profile = profile.as_deref();
+            if let Some(query) = exact {
                 config.query = query.to_owned();
             }
-            config.dry_run = m.is_present("dry-run");
-            let cmd: Vec<&str> = m.values_of("command").unwrap().collect();
+            config.dry_run = *dry_run;
+            let cmd: Vec<&str> = command.iter().map(String::as_str).collect();
             config.each_cmd = Some(&cmd);
             local::each_exec(&config)
         }
-        _ => unreachable!(),
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
-    if let Err(err) = run().await {
-        error!("{}", err);
+    if let Err(err) = run() {
+        error!("{err}");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn verify_cli() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn parse_each_command() {
+        let cli =
+            Cli::try_parse_from(["rrc", "each", "-d", "-e", "foo", "--", "git", "-v"]).unwrap();
+        match cli.command {
+            Commands::Each {
+                dry_run,
+                exact,
+                command,
+                ..
+            } => {
+                assert!(dry_run);
+                assert_eq!(exact.as_deref(), Some("foo"));
+                assert_eq!(command, vec!["git", "-v"]);
+            }
+            _ => panic!("unexpected subcommand"),
+        }
     }
 }

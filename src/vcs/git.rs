@@ -4,15 +4,11 @@ use anyhow::{Context, Result};
 use url::Url;
 
 pub fn from_str(s: &str) -> Result<VCSBackend> {
-    if let Ok(url) = Url::parse(s) {
-        if let Some(host) = url.host_str() {
-            if host == "github.com" {
-                return Ok(VCSBackend::GitBackend);
-            }
-            if host == "gitlab.com" {
-                return Ok(VCSBackend::GitBackend);
-            }
-        }
+    if let Ok(url) = Url::parse(s)
+        && let Some(host) = url.host_str()
+        && matches!(host, "github.com" | "gitlab.com")
+    {
+        return Ok(VCSBackend::GitBackend);
     }
 
     match run_silently(&["git", "ls-remote", s]) {

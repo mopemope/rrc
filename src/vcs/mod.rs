@@ -2,7 +2,7 @@ mod git;
 mod hg;
 
 use anyhow::Result;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::fmt::Debug;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -42,7 +42,7 @@ pub fn detect_vcs(url: &str) -> Result<VCSBackend> {
     } else if let Ok(backend) = hg::from_str(url) {
         Ok(backend)
     } else {
-        Err(anyhow::format_err!("fail detect vcs backend {}", url))
+        Err(anyhow::format_err!("fail detect vcs backend {url}"))
     }
 }
 

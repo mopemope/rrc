@@ -12,7 +12,7 @@ pub fn confirm_with_reader<R: io::BufRead>(
     yes: &str,
     default: Option<&str>,
 ) -> Result<bool> {
-    print!("{} ", prompt);
+    print!("{prompt} ");
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -21,11 +21,7 @@ pub fn confirm_with_reader<R: io::BufRead>(
     if input.is_empty() && default.is_some() {
         input = default.context("failed default")?;
     }
-    if input == yes {
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    if input == yes { Ok(true) } else { Ok(false) }
 }
 
 #[cfg(test)]

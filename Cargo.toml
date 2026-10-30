@@ -2,7 +2,8 @@
 name = "rrc"
 version = "0.2.1"
 authors = ["mopemope <yutaka.matsubara@gmail.com>"]
-edition = "2021"
+edition = "2024"
+rust-version = "1.88"
 description = "A manage remote repository clones"
 homepage = "https://github.com/mopemope/rrc"
 repository = "https://github.com/mopemope/rrc"
@@ -11,20 +12,16 @@ readme = "README.md"
 license = "Apache-2.0"
 
 [dependencies]
-clap = { version = "3", features = ["std"], default-features = false }
-anyhow = "1"
-lazy_static = "1.4"
-log = "0.4"
-env_logger = { version = "0.11", default-features = false }
-regex = { version = "1", default-features = false }
-toml = "0.5"
-serde = { version = "1", default-features = false }
-serde_derive = "1"
-dirs = "5"
-url = "2.1"
-tokio = { version = "1", features = ["full"] }
-jwalk = "0.8"
-rayon = "1"
+clap = { version = "4.6", features = ["std", "derive", "help", "usage", "error-context"], default-features = false }
+anyhow = "1.0.104"
+log = "0.4.34"
+env_logger = { version = "0.11.11", default-features = false }
+regex = { version = "1.13", default-features = false, features = ["std"] }
+toml = "1.1"
+serde = { version = "1.0.229", features = ["derive"] }
+dirs = "7"
+url = "2.5.8"
+rayon = "1.12"
 
 [profile.dev]
 debug = 0
@@ -33,5 +30,6 @@ debug = 0
 lto = true
 codegen-units = 1
 panic = "abort"
+
 [dev-dependencies]
-tempfile = "3"
+tempfile = "3.27"

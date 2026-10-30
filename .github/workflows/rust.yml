@@ -4,6 +4,9 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
+  # Override .cargo/config.toml rustflags: drop -Ctarget-cpu=native so cached
+  # artifacts stay portable across runner CPUs, but keep linking with mold.
+  RUSTFLAGS: -Clink-arg=-fuse-ld=mold
 
 jobs:
   build:
@@ -11,7 +14,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+    # .cargo/config.toml links with mold
+    - uses: rui314/setup-mold@v1
+    - uses: Swatinem/rust-cache@v2
+    - name: Check format
+      run: cargo fmt --check
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings
     - name: Build
       run: cargo build --verbose
     - name: Run tests

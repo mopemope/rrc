@@ -1,13 +1,12 @@
 use crate::config::Config;
-use crate::utils::{chdir, confirm, run_with_work_dir};
-use crate::vcs::{detect_vcs_from_path, VCSBackend, VCSOption};
+use crate::utils::{chdir, confirm, expand_home, run_with_work_dir};
+use crate::vcs::{VCSBackend, VCSOption, detect_vcs_from_path};
 use anyhow::Result;
-use jwalk::WalkDir;
-use log::error;
+use log::{debug, error};
 use rayon::prelude::*;
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct LocalRepository {
@@ -26,73 +25,57 @@ impl Debug for LocalRepository {
 }
 
 fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<()> {
-    if let Err(e) = fs::metadata(root_path) {
-        error!("{} path:{:?}", e, root_path);
+    let Some(root) = expand_home(root_path) else {
+        error!("failed to expand home. path:{root_path:?}");
+        return Ok(());
+    };
+    if let Err(e) = fs::metadata(&root) {
+        error!("{e} path:{root:?}");
         return Ok(());
     }
 
-    let repos_mutex = Arc::new(Mutex::new(Vec::new()));
-    let root_path_string = root_path.to_owned();
-    let repos_clone = repos_mutex.clone();
-
-    WalkDir::new(root_path)
-        .skip_hidden(false)
-        .process_read_dir(move |depth, path, _state, children| {
-            let mut found_backend = None;
-            for child in children.iter().flatten() {
-                if let Some(name) = child.file_name().to_str() {
-                    if let Some(backend) = detect_vcs_from_path(name) {
-                        found_backend = Some(backend);
-                        break;
-                    }
-                }
-            }
-
-            if let Some(backend) = found_backend {
-                if let Ok(mut g) = repos_clone.lock() {
-                    // Use std::path::Path to calculate relative path safely
-                    if let Ok(rel) = path.strip_prefix(&root_path_string) {
-                        if let Some(rel_str) = rel.to_str() {
-                            g.push(LocalRepository {
-                                path: path.to_str().unwrap_or("").to_owned(),
-                                relpath: rel_str.to_owned(),
-                                backend,
-                            });
-                        }
-                    }
-                }
-
-                // Stop descending once this directory is identified as a repository.
-                for child in children.iter_mut().flatten() {
-                    child.read_children_path = None;
-                }
-                return;
-            }
-
-            // jwalk invokes process_read_dir once for the synthetic root entry (depth: None).
-            // Hidden-directory pruning should only apply to actual directory contents.
-            if depth.is_none() {
-                return;
-            }
-
-            // Skip recursing into hidden directories (except VCS markers like .git/.hg).
-            for child in children.iter_mut().flatten() {
-                if let Some(name) = child.file_name().to_str() {
-                    if detect_vcs_from_path(name).is_some() {
-                        continue;
-                    }
-                    if name.starts_with('.') && child.file_type.is_dir() {
-                        child.read_children_path = None;
-                    }
-                }
-            }
-        })
-        .into_iter()
-        .for_each(|_| {});
-
-    let mut found = repos_mutex.lock().unwrap();
-    repos.append(&mut found);
+    repos.append(&mut scan_dir(&root, &root));
     Ok(())
+}
+
+/// Recursively scans `dir` for repositories in parallel.
+/// Once a directory is identified as a repository, its descendants are not scanned.
+fn scan_dir(root: &Path, dir: &Path) -> Vec<LocalRepository> {
+    let mut entries: Vec<fs::DirEntry> = match fs::read_dir(dir) {
+        Ok(entries) => entries.flatten().collect(),
+        Err(e) => {
+            debug!("{e} path:{dir:?}");
+            return vec![];
+        }
+    };
+
+    let found_backend = entries
+        .iter()
+        .find_map(|entry| entry.file_name().to_str().and_then(detect_vcs_from_path));
+    if let Some(backend) = found_backend {
+        // Use std::path::Path to calculate relative path safely
+        return match (
+            dir.to_str(),
+            dir.strip_prefix(root).ok().and_then(Path::to_str),
+        ) {
+            (Some(path), Some(relpath)) => vec![LocalRepository {
+                path: path.to_owned(),
+                relpath: relpath.to_owned(),
+                backend,
+            }],
+            _ => vec![],
+        };
+    }
+
+    entries.sort_by_key(fs::DirEntry::file_name);
+    entries
+        .par_iter()
+        // Symbolic links are not followed.
+        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
+        // Skip recursing into hidden directories.
+        .filter(|entry| !entry.file_name().as_encoded_bytes().starts_with(b"."))
+        .flat_map_iter(|entry| scan_dir(root, &entry.path()))
+        .collect()
 }
 
 fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>> {
@@ -140,9 +123,9 @@ pub fn update(config: &Config<'_>) -> Result<()> {
                 url: None,
                 path: repo.path.clone(),
             };
-            println!("update {}", &opt.path);
+            println!("update {}", opt.path);
             if let Err(e) = repo.backend.update(&opt) {
-                error!("Failed to update {}: {}", &repo.path, e);
+                error!("Failed to update {}: {}", repo.path, e);
             }
         });
         Ok(())
@@ -152,7 +135,7 @@ pub fn update(config: &Config<'_>) -> Result<()> {
 pub fn look(config: &Config<'_>) -> Result<()> {
     each_repo(config, |config, repos| {
         if repos.is_empty() {
-            Err(anyhow::format_err!("{} not found", &config.query))
+            Err(anyhow::format_err!("{} not found", config.query))
         } else {
             let path = &repos[0].path;
             chdir(path)?;
@@ -164,10 +147,10 @@ pub fn look(config: &Config<'_>) -> Result<()> {
 pub fn remove(config: &Config<'_>) -> Result<()> {
     each_repo(config, |_, repos| {
         for repo in repos {
-            println!("{}", &repo.path);
+            println!("{}", repo.path);
             if confirm("do you want to remove this? [Y/n]", "Y", Some("Y"))? {
                 fs::remove_dir_all(&repo.path)?;
-                println!("removed {}", &repo.path);
+                println!("removed {}", repo.path);
             }
             println!();
         }
@@ -178,17 +161,15 @@ pub fn remove(config: &Config<'_>) -> Result<()> {
 pub fn each_exec(config: &Config<'_>) -> Result<()> {
     each_repo(config, |config, repos| {
         if let Some(cmd) = config.each_cmd {
-            let cmd_owned: Vec<String> = cmd.iter().map(|s| s.to_string()).collect();
             if config.dry_run {
                 for repo in repos {
-                    println!("{} : dry-run {:?} ", &repo.path, &cmd);
+                    println!("{} : dry-run {:?} ", repo.path, cmd);
                 }
             } else {
                 repos.par_iter().for_each(|repo| {
-                    let cmd_refs: Vec<&str> = cmd_owned.iter().map(|s| s.as_str()).collect();
-                    println!("{} : exec {:?} ", &repo.path, &cmd_refs);
-                    if let Err(e) = run_with_work_dir(&cmd_refs, &repo.path) {
-                        error!("Failed to exec in {}: {}", &repo.path, e);
+                    println!("{} : exec {:?} ", repo.path, cmd);
+                    if let Err(e) = run_with_work_dir(cmd, &repo.path) {
+                        error!("Failed to exec in {}: {}", repo.path, e);
                     }
                 });
             }
@@ -323,7 +304,7 @@ mod tests {
         if let Ok(root_path) = canonicalize(root_path) {
             let mut result: Vec<LocalRepository> = vec![];
             walk_repository(root_path.to_str().unwrap(), &mut result).unwrap();
-            println!("repos: {:?}", result);
+            println!("repos: {result:?}");
         }
     }
 

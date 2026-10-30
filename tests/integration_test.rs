@@ -4,37 +4,36 @@ use std::process::Command;
 
 #[test]
 fn test_list_command() {
-    let test_root = "tests/test_env";
-    let _ = fs::remove_dir_all(test_root);
-    fs::create_dir_all(format!("{}/repo1/.git", test_root)).unwrap();
-    fs::create_dir_all(format!("{}/category/repo2/.git", test_root)).unwrap();
-    fs::create_dir_all(format!("{}/not_a_repo", test_root)).unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_root = temp_dir.path().join("test_env");
+    let test_root = test_root.to_str().unwrap();
+    fs::create_dir_all(format!("{test_root}/repo1/.git")).unwrap();
+    fs::create_dir_all(format!("{test_root}/category/repo2/.git")).unwrap();
+    fs::create_dir_all(format!("{test_root}/not_a_repo")).unwrap();
 
-    let config_path = "tests/integration_config.toml";
+    let config_path = temp_dir.path().join("integration_config.toml");
     fs::write(
-        config_path,
+        &config_path,
         format!(
             r#"
 [default]
-root = "{}"
-"#,
-            test_root
+root = "{test_root}"
+"#
         ),
     )
     .unwrap();
 
-    let status = Command::new("cargo")
-        .args(["run", "--", "-c", config_path, "list"])
+    let status = Command::new(env!("CARGO_BIN_EXE_rrc"))
+        .arg("-c")
+        .arg(&config_path)
+        .arg("list")
         .output()
         .expect("Failed to execute command");
 
     assert!(status.status.success());
     let output = String::from_utf8(status.stdout).unwrap();
 
-    assert!(output.contains(&format!("{}/repo1", test_root)));
-    assert!(output.contains(&format!("{}/category/repo2", test_root)));
+    assert!(output.contains(&format!("{test_root}/repo1")));
+    assert!(output.contains(&format!("{test_root}/category/repo2")));
     assert!(!output.contains("not_a_repo")); // Should not list non-repos
-
-    let _ = fs::remove_dir_all(test_root);
-    let _ = fs::remove_file(config_path);
 }

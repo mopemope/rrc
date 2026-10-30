@@ -1,17 +1,9 @@
 use anyhow::{Context, Result};
 use dirs::home_dir;
-use lazy_static::lazy_static;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
-use std::default::Default;
-use std::fs::File;
-use std::io::Read;
-use std::{env, path};
+use std::{env, fs, path};
 use toml::from_str;
-
-lazy_static! {
-    pub static ref DEFAULT_REPO_ROOT: String = default_root();
-}
 
 #[derive(Debug, Clone)]
 pub struct Config<'a> {
@@ -90,29 +82,32 @@ impl Config<'_> {
         if let Some(config) = self.repos.get(name) {
             Ok(config)
         } else {
-            Err(anyhow::format_err!("profile '{}' not found", name))
+            Err(anyhow::format_err!("profile '{name}' not found"))
         }
     }
 }
 
-pub fn parse_config(path: &str) -> Result<Config<'_>> {
+pub fn parse_config<'a>(path: &str) -> Result<Config<'a>> {
     let mut config: Config = Default::default();
     if !path::Path::new(path).exists() {
         return Ok(config);
     }
-    let mut config_toml = String::new();
-    let mut file = File::open(path)?;
-    file.read_to_string(&mut config_toml)?;
+    let config_toml = fs::read_to_string(path)?;
 
     let repos: HashMap<String, RepositoryConfig> =
-        from_str(&config_toml).with_context(|| format!("failed parse toml. path: {}", path))?;
+        from_str(&config_toml).with_context(|| format!("failed parse toml. path: {path}"))?;
 
-    for (_, repo_conf) in repos.iter() {
+    // Iterate in a stable (sorted) order so that a host listed in several
+    // profiles always resolves to the same root.
+    let mut names: Vec<&String> = repos.keys().collect();
+    names.sort();
+    for repo_conf in names.into_iter().map(|name| &repos[name]) {
         let root = &repo_conf.root;
         for host in &repo_conf.hosts {
-            if !config.hosts.contains_key(host) {
-                config.hosts.insert(host.to_string(), root.to_owned());
-            }
+            config
+                .hosts
+                .entry(host.to_owned())
+                .or_insert_with(|| root.to_owned());
         }
     }
     config.repos = repos;

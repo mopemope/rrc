@@ -1,20 +1,19 @@
 use crate::config::Config;
 use crate::utils::{chdir, expand_home};
-use crate::vcs::{detect_vcs, VCSOption};
+use crate::vcs::{VCSOption, detect_vcs};
 use anyhow::{Context, Error, Result};
-use lazy_static::lazy_static;
 use log::debug;
 use regex::Regex;
 use std::fmt::{self, Debug};
 use std::fs::create_dir_all;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::LazyLock;
 use url::Url;
 
-lazy_static! {
-    static ref RE_SCP: Regex =
-        Regex::new(r"^((?:[^@]+@)?)([^:]+):/?(.+)$").expect("should be a valid regex pattern");
-}
+static RE_SCP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^((?:[^@]+@)?)([^:]+):/?(.+)$").expect("should be a valid regex pattern")
+});
 
 #[derive(Debug)]
 struct SSHPath {
@@ -39,7 +38,7 @@ impl FromStr for SSHPath {
     fn from_str(s: &str) -> Result<SSHPath> {
         let cap = RE_SCP
             .captures(s)
-            .with_context(|| format!("{} does not match", s))?;
+            .with_context(|| format!("{s} does not match"))?;
 
         let user = cap
             .get(1)
@@ -80,7 +79,7 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
         let url_path = Path::new(url.path());
         let host = url
             .host_str()
-            .with_context(|| format!("unrecognized import path {}", raw_url))?;
+            .with_context(|| format!("unrecognized import path {raw_url}"))?;
 
         let root = config.hosts.get(host).unwrap_or(&default_root);
         let root = expand_home(root).context("failed expand home")?;
@@ -104,16 +103,16 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
     } else {
         let size = raw_url.split('/').count();
         let raw_url = if size == 2 {
-            format!("https://github.com/{}", raw_url)
+            format!("https://github.com/{raw_url}")
         } else {
-            format!("https://{}", raw_url)
+            format!("https://{raw_url}")
         };
         let url = Url::parse(&raw_url)?;
         let url_path = Path::new(url.path());
 
         let host = url
             .host_str()
-            .with_context(|| format!("unrecognized import path {}", raw_url))?;
+            .with_context(|| format!("unrecognized import path {raw_url}"))?;
 
         let root = config.hosts.get(host).unwrap_or(&default_root);
 
@@ -127,7 +126,7 @@ fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<V
             path: dir.to_str().context("failed to str")?.to_owned(),
         }
     };
-    debug!("{:?}", opt);
+    debug!("{opt:?}");
     Ok(opt)
 }
 
@@ -135,7 +134,7 @@ pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
     let profile = config.profile.unwrap_or("default");
     let repo_config = config.profile(profile)?;
     let root = &repo_config.root;
-    debug!("default repos_root {}", root);
+    debug!("default repos_root {root}");
 
     let opt = parse_url(config, root, raw_url)?;
     let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
