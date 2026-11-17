@@ -19,28 +19,33 @@ $ cargo install rrc
 `rrc` command is almost compatible with [ghq][1].
 
 ```
-rrc
 A manage remote repository clones
 
-USAGE:
-    rrc [OPTIONS] <SUBCOMMAND>
+Usage: rrc [OPTIONS] <COMMAND>
 
-FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
+Commands:
+  get     Clone remote repository
+  list    List local repositories
+  update  Update local repositories
+  look    Look local repository
+  remove  Remove local repositories
+  each    Execute command for each local repositories
+  help    Print this message or the help of the given subcommand(s)
 
-OPTIONS:
-    -c, --config <FILE>    Set config file
-
-SUBCOMMANDS:
-    each      Execute command for each local repositories
-    get       Clone remote repository
-    help      Prints this message or the help of the given subcommand(s)
-    list      List local repositories
-    look      Look local repository
-    remove    Remove local repositories
-    update    Update local repositories
+Options:
+  -c, --config <FILE>  Set config file [default: $HOME/rrc.toml]
+  -h, --help           Print help
+  -V, --version        Print version
 ```
+
+Repositories can be given as `https://host/user/repo`, `ssh://...`,
+scp-like `[user@]host:user/repo`, `host/user/repo` or `user/repo` (GitHub).
+
+`update` and `each` run in parallel and exit with an error if any repository
+failed. The output of `update` is printed as one block per repository.
+`remove` asks for confirmation for each repository (default: no).
+
+The config file can also be set with `RRC_CONFIG`, and the default root with `RRC_ROOT`.
 
 For how to use this tool, [ghq-handbook][2] will be helpful.
 

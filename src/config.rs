@@ -20,22 +20,13 @@ pub struct Config<'a> {
 pub struct RepositoryConfig {
     #[serde(default = "default_root")]
     pub root: String,
-    #[serde(default = "default_vec_str")]
+    #[serde(default)]
     pub hosts: Vec<String>,
 }
 
-fn default_vec_str() -> Vec<String> {
-    Vec::new()
-}
-
 fn default_root() -> String {
-    match env::var("RRC_ROOT") {
-        Ok(val) => val,
-        Err(_) => {
-            let home = home_dir().unwrap();
-            home.join("repos").to_str().unwrap().to_owned()
-        }
-    }
+    // `~` is expanded when the root is used.
+    env::var("RRC_ROOT").unwrap_or_else(|_| "~/repos".to_owned())
 }
 
 impl Default for Config<'_> {
@@ -92,7 +83,8 @@ pub fn parse_config<'a>(path: &str) -> Result<Config<'a>> {
     if !path::Path::new(path).exists() {
         return Ok(config);
     }
-    let config_toml = fs::read_to_string(path)?;
+    let config_toml =
+        fs::read_to_string(path).with_context(|| format!("failed to read config. path: {path}"))?;
 
     let repos: HashMap<String, RepositoryConfig> =
         from_str(&config_toml).with_context(|| format!("failed parse toml. path: {path}"))?;
@@ -116,13 +108,10 @@ pub fn parse_config<'a>(path: &str) -> Result<Config<'a>> {
 }
 
 pub fn get_config_path() -> String {
-    match env::var("RRC_CONFIG") {
-        Ok(val) => val,
-        Err(_) => {
-            let home = home_dir().unwrap();
-            home.join("rrc.toml").to_str().unwrap().to_owned()
-        }
-    }
+    env::var("RRC_CONFIG").unwrap_or_else(|_| match home_dir() {
+        Some(home) => home.join("rrc.toml").to_string_lossy().into_owned(),
+        None => "rrc.toml".to_owned(),
+    })
 }
 
 #[cfg(test)]

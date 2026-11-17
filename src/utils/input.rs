@@ -1,27 +1,35 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::io::{self, Write};
 
-pub fn confirm(prompt: &str, yes: &str, default: Option<&str>) -> Result<bool> {
+/// Asks a yes/no question on stdin.
+///
+/// `y` / `yes` (case-insensitive) answers yes, an empty line selects `default`,
+/// and anything else answers no. End of input always answers no, so that a
+/// closed stdin can never confirm a destructive operation.
+pub fn confirm(prompt: &str, default: bool) -> Result<bool> {
     let stdin = io::stdin();
-    confirm_with_reader(stdin.lock(), prompt, yes, default)
+    confirm_with_reader(stdin.lock(), prompt, default)
 }
 
 pub fn confirm_with_reader<R: io::BufRead>(
     mut reader: R,
     prompt: &str,
-    yes: &str,
-    default: Option<&str>,
+    default: bool,
 ) -> Result<bool> {
     print!("{prompt} ");
     io::stdout().flush()?;
 
     let mut input = String::new();
-    let _ = reader.read_line(&mut input)?;
-    let mut input = input.trim_end();
-    if input.is_empty() && default.is_some() {
-        input = default.context("failed default")?;
+    if reader.read_line(&mut input)? == 0 {
+        // EOF
+        println!();
+        return Ok(false);
     }
-    if input == yes { Ok(true) } else { Ok(false) }
+    let input = input.trim();
+    if input.is_empty() {
+        return Ok(default);
+    }
+    Ok(input.eq_ignore_ascii_case("y") || input.eq_ignore_ascii_case("yes"))
 }
 
 #[cfg(test)]
@@ -30,9 +38,17 @@ mod tests {
 
     #[test]
     fn test_confirm_with_reader() {
-        assert!(confirm_with_reader("Y\n".as_bytes(), "prompt", "Y", None).unwrap());
-        assert!(!confirm_with_reader("n\n".as_bytes(), "prompt", "Y", None).unwrap());
-        assert!(confirm_with_reader("\n".as_bytes(), "prompt", "Y", Some("Y")).unwrap());
-        assert!(!confirm_with_reader("\n".as_bytes(), "prompt", "Y", Some("n")).unwrap());
+        assert!(confirm_with_reader("Y\n".as_bytes(), "prompt", false).unwrap());
+        assert!(confirm_with_reader("y\n".as_bytes(), "prompt", false).unwrap());
+        assert!(confirm_with_reader(" yes \n".as_bytes(), "prompt", false).unwrap());
+        assert!(!confirm_with_reader("n\n".as_bytes(), "prompt", true).unwrap());
+        assert!(!confirm_with_reader("yeah\n".as_bytes(), "prompt", true).unwrap());
+        assert!(confirm_with_reader("\n".as_bytes(), "prompt", true).unwrap());
+        assert!(!confirm_with_reader("\n".as_bytes(), "prompt", false).unwrap());
+    }
+
+    #[test]
+    fn test_confirm_eof_is_no() {
+        assert!(!confirm_with_reader("".as_bytes(), "prompt", true).unwrap());
     }
 }

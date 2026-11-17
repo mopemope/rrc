@@ -483,7 +483,6 @@ dependencies = [
  "env_logger",
  "log",
  "rayon",
- "regex",
  "serde",
  "tempfile",
  "toml",

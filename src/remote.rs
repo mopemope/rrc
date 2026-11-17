@@ -1,190 +1,147 @@
 use crate::config::Config;
 use crate::utils::{chdir, expand_home};
-use crate::vcs::{VCSOption, detect_vcs};
-use anyhow::{Context, Error, Result};
+use crate::vcs::{VCSBackend, detect_vcs, detect_vcs_from_dir};
+use anyhow::{Context, Result, bail};
 use log::debug;
-use regex::Regex;
-use std::fmt::{self, Debug};
 use std::fs::create_dir_all;
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::LazyLock;
+use std::path::{Component, Path};
 use url::Url;
 
-static RE_SCP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^((?:[^@]+@)?)([^:]+):/?(.+)$").expect("should be a valid regex pattern")
-});
-
+/// A remote repository resolved to its local clone location.
 #[derive(Debug)]
-struct SSHPath {
-    user: String,
+struct Remote {
+    /// The url passed to the VCS.
+    url: String,
     host: String,
+    /// The local clone path (`<root>/<host>/<path>`).
     path: String,
 }
 
-impl SSHPath {
-    pub fn host(&self) -> &str {
-        &self.host
+/// Parses scp-like syntax (`[user@]host:path`) the way git does: it is only
+/// recognized when there is no slash before the first colon.
+fn parse_scp_like(s: &str) -> Option<(&str, &str)> {
+    let (head, path) = s.split_once(':')?;
+    if head.contains('/') {
+        return None;
     }
-
-    pub fn path(&self) -> &str {
-        &self.path
+    let host = head.rsplit_once('@').map_or(head, |(_, host)| host);
+    if host.is_empty() || path.is_empty() {
+        return None;
     }
+    Some((host, path))
 }
 
-impl FromStr for SSHPath {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<SSHPath> {
-        let cap = RE_SCP
-            .captures(s)
-            .with_context(|| format!("{s} does not match"))?;
-
-        let user = cap
-            .get(1)
-            .and_then(|s| {
-                if s.as_str() != "" {
-                    Some(s.as_str())
-                } else {
-                    None
-                }
-            })
-            .map(|s| s.trim_end_matches('@'))
-            .unwrap_or("git")
-            .to_owned();
-        let host = cap
-            .get(2)
-            .context("failed get regex capture")?
-            .as_str()
-            .to_owned();
-        let path = cap
-            .get(3)
-            .context("failed get regex capture")?
-            .as_str()
-            .trim_end_matches(".git")
-            .to_owned();
-        Ok(SSHPath { user, host, path })
+/// Normalizes a repository path: trims slashes and a single trailing `.git`.
+fn repo_path(raw_url: &str, path: &str) -> Result<String> {
+    let path = path.trim_matches('/');
+    let path = path
+        .strip_suffix(".git")
+        .unwrap_or(path)
+        .trim_end_matches('/');
+    let valid = !path.is_empty()
+        && Path::new(path)
+            .components()
+            .all(|c| matches!(c, Component::Normal(_)));
+    if !valid {
+        bail!("invalid repository path in {raw_url}");
     }
+    Ok(path.to_owned())
 }
 
-impl fmt::Display for SSHPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}@{}:{}.git", self.user, self.host, self.path)
-    }
-}
-
-fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<VCSOption> {
-    let default_root = default_root.to_owned();
-    let opt = if let Ok(url) = Url::parse(raw_url) {
-        let url_path = Path::new(url.path());
-        let host = url
+/// Splits `raw_url` into the url passed to the VCS, its host and repository path.
+fn split_url(raw_url: &str) -> Result<(String, String, String)> {
+    let parse_url = |url: String| -> Result<(String, String, String)> {
+        let parsed = Url::parse(&url).with_context(|| format!("invalid url {raw_url}"))?;
+        let host = parsed
             .host_str()
-            .with_context(|| format!("unrecognized import path {raw_url}"))?;
-
-        let root = config.hosts.get(host).unwrap_or(&default_root);
-        let root = expand_home(root).context("failed expand home")?;
-
-        let path = &url_path.to_str().context("failed to_str")?[1..];
-        let mut dir = root.join(host).join(path);
-        dir.set_extension("");
-        VCSOption {
-            url: Some(raw_url.to_owned()),
-            path: dir.to_str().context("failed to str")?.to_owned(),
-        }
-    } else if let Ok(ssh_path) = raw_url.parse() as Result<SSHPath> {
-        let root = config.hosts.get(&ssh_path.host).unwrap_or(&default_root);
-        let root = expand_home(root).context("failed expand home")?;
-        let mut dir = root.join(ssh_path.host()).join(ssh_path.path());
-        dir.set_extension("");
-        VCSOption {
-            url: Some(raw_url.to_owned()),
-            path: dir.to_str().context("failed to str")?.to_owned(),
-        }
-    } else {
-        let size = raw_url.split('/').count();
-        let raw_url = if size == 2 {
-            format!("https://github.com/{raw_url}")
-        } else {
-            format!("https://{raw_url}")
-        };
-        let url = Url::parse(&raw_url)?;
-        let url_path = Path::new(url.path());
-
-        let host = url
-            .host_str()
-            .with_context(|| format!("unrecognized import path {raw_url}"))?;
-
-        let root = config.hosts.get(host).unwrap_or(&default_root);
-
-        let root = expand_home(root).context("failed expand home")?;
-        let path = &url_path.to_str().context("failed to_str")?[1..];
-        let mut dir = root.join(host).join(path);
-        dir.set_extension("");
-
-        VCSOption {
-            url: Some(raw_url.to_owned()),
-            path: dir.to_str().context("failed to str")?.to_owned(),
-        }
+            .with_context(|| format!("unrecognized import path {raw_url}"))?
+            .to_owned();
+        let path = repo_path(raw_url, parsed.path())?;
+        Ok((url, host, path))
     };
-    debug!("{opt:?}");
-    Ok(opt)
+
+    if raw_url.contains("://") {
+        parse_url(raw_url.to_owned())
+    } else if let Some((host, path)) = parse_scp_like(raw_url) {
+        // Host names are case-insensitive; normalize like `Url` does.
+        Ok((
+            raw_url.to_owned(),
+            host.to_ascii_lowercase(),
+            repo_path(raw_url, path)?,
+        ))
+    } else if raw_url.trim_matches('/').split('/').count() == 2 {
+        // `user/repo` is a shorthand for GitHub.
+        parse_url(format!("https://github.com/{raw_url}"))
+    } else {
+        parse_url(format!("https://{raw_url}"))
+    }
 }
 
-pub fn get(config: &Config<'_>, raw_url: &str, update: bool) -> Result<()> {
-    let profile = config.profile.unwrap_or("default");
-    let repo_config = config.profile(profile)?;
-    let root = &repo_config.root;
-    debug!("default repos_root {root}");
+fn parse_url(config: &Config<'_>, default_root: &str, raw_url: &str) -> Result<Remote> {
+    let (url, host, path) = split_url(raw_url)?;
+    let root = config.hosts.get(&host).map_or(default_root, String::as_str);
+    let root = expand_home(root).context("failed to expand home")?;
+    let dir = root.join(&host).join(path);
+    let remote = Remote {
+        url,
+        host,
+        path: dir.to_str().context("non UTF-8 path")?.to_owned(),
+    };
+    debug!("{remote:?}");
+    Ok(remote)
+}
 
-    let opt = parse_url(config, root, raw_url)?;
-    let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
-
-    if update && Path::new(&opt.path).exists() {
-        vcs.update(&opt)?;
-        if config.look {
-            chdir(&opt.path)?;
-        }
-    } else {
-        if !Path::new(&opt.path).exists() {
-            create_dir_all(&opt.path)?;
-        }
-        vcs.get_repository(&opt)?;
-        if config.look {
-            chdir(&opt.path)?;
-        }
+fn update_local(config: &Config<'_>, remote: &Remote, backend: VCSBackend) -> Result<()> {
+    println!("update {}", remote.path);
+    backend.update(&remote.path)?;
+    if config.look {
+        chdir(&remote.path)?;
     }
-
     Ok(())
 }
 
-pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
-    if let Some(profile) = config.profile {
-        let repo_config = config.profile(profile)?;
-        if sync_repo(config, &repo_config.root, raw_url)? {
-            return Ok(());
-        }
+/// Clones `raw_url` into the root of the selected profile.
+/// An already cloned repository is left as it is.
+pub fn get(config: &Config<'_>, raw_url: &str) -> Result<()> {
+    let profile = config.profile.unwrap_or("default");
+    let root = &config.profile(profile)?.root;
+    debug!("default repos_root {root}");
+
+    let remote = parse_url(config, root, raw_url)?;
+    let path = Path::new(&remote.path);
+    if detect_vcs_from_dir(path).is_some() {
+        println!("exists {}", remote.path);
     } else {
-        for root in config.roots() {
-            if sync_repo(config, root, raw_url)? {
-                return Ok(());
-            }
+        let vcs = detect_vcs(&remote.url, &remote.host)?;
+        if let Some(parent) = path.parent() {
+            create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        println!("clone {} -> {}", remote.url, remote.path);
+        vcs.clone_repository(&remote.url, &remote.path)?;
+    }
+    if config.look {
+        chdir(path)?;
+    }
+    Ok(())
+}
+
+/// Updates the local clone of `raw_url` if one exists in any root (or in the
+/// root of the selected profile), and clones it otherwise.
+pub fn update_or_get(config: &Config<'_>, raw_url: &str) -> Result<()> {
+    let roots: Vec<&String> = match config.profile {
+        Some(profile) => vec![&config.profile(profile)?.root],
+        None => config.roots().into_iter().collect(),
+    };
+    for root in roots {
+        let remote = parse_url(config, root, raw_url)?;
+        // Detect from the local clone: no network round trip is needed.
+        if let Some(backend) = detect_vcs_from_dir(Path::new(&remote.path)) {
+            return update_local(config, &remote, backend);
         }
     }
     // not found
-    get(config, raw_url, true)
-}
-
-fn sync_repo(config: &Config<'_>, root: &str, raw_url: &str) -> Result<bool> {
-    let opt = parse_url(config, root, raw_url)?;
-    let vcs = detect_vcs(opt.url.as_ref().context("url not found")?)?;
-    if Path::new(&opt.path).exists() {
-        vcs.update(&opt)?;
-        if config.look {
-            chdir(&opt.path)?;
-        }
-        return Ok(true);
-    }
-    Ok(false)
+    get(config, raw_url)
 }
 
 #[cfg(test)]
@@ -193,44 +150,124 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn test_ssh_path_from_str() {
-        let path: SSHPath = "git@github.com:mopemope/rrc.git".parse().unwrap();
-        assert_eq!(path.user, "git");
-        assert_eq!(path.host, "github.com");
-        assert_eq!(path.path, "mopemope/rrc");
+    fn test_parse_scp_like() {
+        assert_eq!(
+            parse_scp_like("git@github.com:mopemope/rrc.git"),
+            Some(("github.com", "mopemope/rrc.git"))
+        );
+        assert_eq!(
+            parse_scp_like("github.com:mopemope/rrc"),
+            Some(("github.com", "mopemope/rrc"))
+        );
+        assert_eq!(
+            parse_scp_like("user@host:/path/to/repo"),
+            Some(("host", "/path/to/repo"))
+        );
+        // A slash before the colon means a local path, as in git.
+        assert_eq!(parse_scp_like("./foo:bar"), None);
+        assert_eq!(parse_scp_like("mopemope/rrc"), None);
+        assert_eq!(parse_scp_like(":path"), None);
+        assert_eq!(parse_scp_like("host:"), None);
+    }
 
-        let path: SSHPath = "github.com:mopemope/rrc".parse().unwrap();
-        assert_eq!(path.user, "git");
-        assert_eq!(path.host, "github.com");
-        assert_eq!(path.path, "mopemope/rrc");
-
-        let path: SSHPath = "user@host:path/to/repo".parse().unwrap();
-        assert_eq!(path.user, "user");
-        assert_eq!(path.host, "host");
-        assert_eq!(path.path, "path/to/repo");
+    fn path_of(config: &Config<'_>, raw_url: &str) -> String {
+        parse_url(config, "/tmp/repos", raw_url).unwrap().path
     }
 
     #[test]
     fn test_parse_url() {
+        let config = Config::default();
+
+        // HTTPS URL
+        let remote = parse_url(&config, "/tmp/repos", "https://github.com/mopemope/rrc").unwrap();
+        assert_eq!(remote.url, "https://github.com/mopemope/rrc");
+        assert_eq!(remote.host, "github.com");
+        assert_eq!(remote.path, "/tmp/repos/github.com/mopemope/rrc");
+
+        // Git SCP-like URL
+        let remote = parse_url(&config, "/tmp/repos", "git@github.com:mopemope/rrc.git").unwrap();
+        assert_eq!(remote.url, "git@github.com:mopemope/rrc.git");
+        assert_eq!(remote.path, "/tmp/repos/github.com/mopemope/rrc");
+
+        // The host is normalized to lower case, as for URLs.
+        let remote = parse_url(&config, "/tmp/repos", "git@GitHub.com:mopemope/rrc").unwrap();
+        assert_eq!(remote.host, "github.com");
+        assert_eq!(remote.path, "/tmp/repos/github.com/mopemope/rrc");
+
+        // SCP-like URL without user
+        let remote = parse_url(&config, "/tmp/repos", "github.com:mopemope/rrc").unwrap();
+        assert_eq!(remote.url, "github.com:mopemope/rrc");
+        assert_eq!(remote.path, "/tmp/repos/github.com/mopemope/rrc");
+
+        // Short GitHub URL
+        let remote = parse_url(&config, "/tmp/repos", "mopemope/rrc").unwrap();
+        assert_eq!(remote.url, "https://github.com/mopemope/rrc");
+        assert_eq!(remote.path, "/tmp/repos/github.com/mopemope/rrc");
+
+        // Host and path without scheme
+        let remote = parse_url(&config, "/tmp/repos", "gitlab.com/a/b").unwrap();
+        assert_eq!(remote.url, "https://gitlab.com/a/b");
+        assert_eq!(remote.path, "/tmp/repos/gitlab.com/a/b");
+
+        // ssh:// URL
+        assert_eq!(
+            path_of(&config, "ssh://git@example.com:2222/a/b.git"),
+            "/tmp/repos/example.com/a/b"
+        );
+    }
+
+    #[test]
+    fn test_parse_url_keeps_dots_in_name() {
+        let config = Config::default();
+        assert_eq!(
+            path_of(&config, "https://github.com/socketio/socket.io"),
+            "/tmp/repos/github.com/socketio/socket.io"
+        );
+        assert_eq!(
+            path_of(&config, "git@github.com:socketio/socket.io.git"),
+            "/tmp/repos/github.com/socketio/socket.io"
+        );
+        assert_eq!(
+            path_of(&config, "https://github.com/a/b.git/"),
+            "/tmp/repos/github.com/a/b"
+        );
+        // Only a single `.git` suffix is removed.
+        assert_eq!(
+            path_of(&config, "https://github.com/a/b.git.git"),
+            "/tmp/repos/github.com/a/b.git"
+        );
+    }
+
+    #[test]
+    fn test_parse_url_rejects_invalid_paths() {
+        let config = Config::default();
+        for raw_url in [
+            "https://github.com",
+            "https://github.com/",
+            "https://github.com/.git",
+            "host:../../etc",
+            "host:./repo",
+        ] {
+            assert!(
+                parse_url(&config, "/tmp/repos", raw_url).is_err(),
+                "{raw_url} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_url_host_root() {
         let mut config = Config::default();
         config
             .hosts
-            .insert("github.com".to_string(), "~/gh/src".to_string());
-        let default_root = "/tmp/repos";
-
-        // HTTPS URL
-        let opt = parse_url(&config, default_root, "https://github.com/mopemope/rrc").unwrap();
-        assert_eq!(opt.url, Some("https://github.com/mopemope/rrc".to_string()));
-        assert!(opt.path.contains("github.com/mopemope/rrc"));
-
-        // Git SCP-like URL
-        let opt = parse_url(&config, default_root, "git@github.com:mopemope/rrc.git").unwrap();
-        assert_eq!(opt.url, Some("git@github.com:mopemope/rrc.git".to_string()));
-        assert!(opt.path.contains("github.com/mopemope/rrc"));
-
-        // Short GitHub URL
-        let opt = parse_url(&config, default_root, "mopemope/rrc").unwrap();
-        assert_eq!(opt.url, Some("https://github.com/mopemope/rrc".to_string()));
-        assert!(opt.path.contains("github.com/mopemope/rrc"));
+            .insert("github.com".to_string(), "/gh/src".to_string());
+        assert_eq!(
+            path_of(&config, "mopemope/rrc"),
+            "/gh/src/github.com/mopemope/rrc"
+        );
+        assert_eq!(
+            path_of(&config, "gitlab.com/a/b"),
+            "/tmp/repos/gitlab.com/a/b"
+        );
     }
 }

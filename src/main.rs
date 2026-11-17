@@ -125,7 +125,7 @@ fn run() -> Result<()> {
                 if *update {
                     remote::update_or_get(&config, url)?;
                 } else {
-                    remote::get(&config, url, false)?;
+                    remote::get(&config, url)?;
                 }
             }
             Ok(())
@@ -175,7 +175,7 @@ fn run() -> Result<()> {
 fn main() {
     env_logger::init();
     if let Err(err) = run() {
-        error!("{err}");
+        error!("{err:#}");
         std::process::exit(1);
     }
 }

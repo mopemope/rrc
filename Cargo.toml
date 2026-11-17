@@ -5,7 +5,6 @@ authors = ["mopemope <yutaka.matsubara@gmail.com>"]
 edition = "2024"
 rust-version = "1.88"
 description = "A manage remote repository clones"
-homepage = "https://github.com/mopemope/rrc"
 repository = "https://github.com/mopemope/rrc"
 keywords = ["git", "tool"]
 readme = "README.md"
@@ -16,7 +15,6 @@ clap = { version = "4.6", features = ["std", "derive", "help", "usage", "error-c
 anyhow = "1.0.104"
 log = "0.4.34"
 env_logger = { version = "0.11.11", default-features = false }
-regex = { version = "1.13", default-features = false, features = ["std"] }
 toml = "1.1"
 serde = { version = "1.0.229", features = ["derive"] }
 dirs = "7"

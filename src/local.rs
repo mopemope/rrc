@@ -1,12 +1,15 @@
 use crate::config::Config;
-use crate::utils::{chdir, confirm, expand_home, run_with_work_dir};
-use crate::vcs::{VCSBackend, VCSOption, detect_vcs_from_path};
-use anyhow::Result;
+use crate::utils::{chdir, confirm, expand_home, output_with_work_dir, run_with_work_dir};
+use crate::vcs::{VCSBackend, detect_vcs_from_path};
+use anyhow::{Result, bail};
 use log::{debug, error};
 use rayon::prelude::*;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
-use std::path::Path;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone)]
 pub struct LocalRepository {
@@ -24,131 +27,189 @@ impl Debug for LocalRepository {
     }
 }
 
-fn walk_repository(root_path: &str, repos: &mut Vec<LocalRepository>) -> Result<()> {
-    let Some(root) = expand_home(root_path) else {
-        error!("failed to expand home. path:{root_path:?}");
-        return Ok(());
-    };
-    if let Err(e) = fs::metadata(&root) {
+fn walk_repository(root: &Path, repos: &mut Vec<LocalRepository>) {
+    if let Err(e) = fs::metadata(root) {
         error!("{e} path:{root:?}");
-        return Ok(());
+        return;
     }
-
-    repos.append(&mut scan_dir(&root, &root));
-    Ok(())
+    repos.append(&mut scan_dir(root, root));
 }
 
 /// Recursively scans `dir` for repositories in parallel.
 /// Once a directory is identified as a repository, its descendants are not scanned.
 fn scan_dir(root: &Path, dir: &Path) -> Vec<LocalRepository> {
-    let mut entries: Vec<fs::DirEntry> = match fs::read_dir(dir) {
-        Ok(entries) => entries.flatten().collect(),
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
         Err(e) => {
             debug!("{e} path:{dir:?}");
             return vec![];
         }
     };
 
-    let found_backend = entries
-        .iter()
-        .find_map(|entry| entry.file_name().to_str().and_then(detect_vcs_from_path));
-    if let Some(backend) = found_backend {
-        // Use std::path::Path to calculate relative path safely
-        return match (
-            dir.to_str(),
-            dir.strip_prefix(root).ok().and_then(Path::to_str),
-        ) {
-            (Some(path), Some(relpath)) => vec![LocalRepository {
-                path: path.to_owned(),
-                relpath: relpath.to_owned(),
-                backend,
-            }],
-            _ => vec![],
-        };
+    let mut subdirs: Vec<PathBuf> = vec![];
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if let Some(backend) = name.to_str().and_then(detect_vcs_from_path) {
+            // Use std::path::Path to calculate relative path safely
+            return match (
+                dir.to_str(),
+                dir.strip_prefix(root).ok().and_then(Path::to_str),
+            ) {
+                (Some(path), Some(relpath)) => vec![LocalRepository {
+                    path: path.to_owned(),
+                    relpath: relpath.to_owned(),
+                    backend,
+                }],
+                _ => vec![],
+            };
+        }
+        // Symbolic links are not followed, and hidden directories are skipped.
+        if !name.as_encoded_bytes().starts_with(b".") && entry.file_type().is_ok_and(|t| t.is_dir())
+        {
+            subdirs.push(entry.path());
+        }
     }
 
-    entries.sort_by_key(fs::DirEntry::file_name);
-    entries
+    // Sort for a stable output order; `collect` keeps the order of `par_iter`.
+    subdirs.sort_unstable();
+    subdirs
         .par_iter()
-        // Symbolic links are not followed.
-        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
-        // Skip recursing into hidden directories.
-        .filter(|entry| !entry.file_name().as_encoded_bytes().starts_with(b"."))
-        .flat_map_iter(|entry| scan_dir(root, &entry.path()))
+        .flat_map_iter(|subdir| scan_dir(root, subdir))
         .collect()
 }
 
-fn walk_repositories(config: &Config<'_>) -> Result<Vec<LocalRepository>> {
-    let mut result: Vec<LocalRepository> = vec![];
-    for root in config.roots() {
-        walk_repository(root, &mut result)?;
-    }
-    Ok(result)
+/// Expands `~` in the given roots and removes duplicates.
+fn expand_roots<'a>(roots: impl IntoIterator<Item = &'a String>) -> BTreeSet<PathBuf> {
+    roots
+        .into_iter()
+        .filter_map(|root| {
+            let expanded = expand_home(root);
+            if expanded.is_none() {
+                error!("failed to expand home. path:{root:?}");
+            }
+            expanded
+        })
+        .collect()
 }
 
-fn list_repos(config: &Config<'_>, profile: &str) -> Result<Vec<LocalRepository>> {
-    let repo_config = config.profile(profile)?;
+fn walk_repositories<'a>(roots: impl IntoIterator<Item = &'a String>) -> Vec<LocalRepository> {
     let mut result: Vec<LocalRepository> = vec![];
-    walk_repository(&repo_config.root, &mut result)?;
-    Ok(result)
+    for root in &expand_roots(roots) {
+        walk_repository(root, &mut result);
+    }
+    dedup_repositories(result)
+}
+
+/// Removes repositories found under several nested roots. The shortest relative
+/// path (relative to the innermost root) is kept, so that matching a query
+/// behaves as if the repository was found only under that root.
+fn dedup_repositories(repos: Vec<LocalRepository>) -> Vec<LocalRepository> {
+    let mut index: HashMap<String, usize> = HashMap::with_capacity(repos.len());
+    let mut result: Vec<LocalRepository> = Vec::with_capacity(repos.len());
+    for repo in repos {
+        match index.get(&repo.path) {
+            Some(&i) => {
+                if repo.relpath.len() < result[i].relpath.len() {
+                    result[i].relpath = repo.relpath;
+                }
+            }
+            None => {
+                index.insert(repo.path.clone(), result.len());
+                result.push(repo);
+            }
+        }
+    }
+    result
 }
 
 fn each_repo(
     config: &Config<'_>,
-    f: fn(&Config<'_>, &Vec<&LocalRepository>) -> Result<()>,
+    f: impl FnOnce(&Config<'_>, &[&LocalRepository]) -> Result<()>,
 ) -> Result<()> {
-    let repos = if let Some(profile) = config.profile {
-        list_repos(config, profile)?
-    } else {
-        walk_repositories(config)?
+    let repos = match config.profile {
+        Some(profile) => walk_repositories([&config.profile(profile)?.root]),
+        None => walk_repositories(config.roots()),
     };
     let fuzzy = FuzzyVec::from_vec(repos);
     let repos = fuzzy.search(&config.query);
     f(config, &repos)
 }
 
+/// Runs `run` for each repository in parallel, logging each failure.
+/// Returns an error if `run` failed for any repository.
+fn run_parallel(
+    repos: &[&LocalRepository],
+    label: &str,
+    run: impl Fn(&LocalRepository) -> Result<()> + Sync,
+) -> Result<()> {
+    let failures = AtomicUsize::new(0);
+    repos.par_iter().for_each(|repo| {
+        if let Err(e) = run(repo) {
+            failures.fetch_add(1, Ordering::Relaxed);
+            error!("failed to {label} {}: {e:#}", repo.path);
+        }
+    });
+
+    let failures = failures.into_inner();
+    if failures > 0 {
+        bail!(
+            "{label} failed in {failures} of {} repositories",
+            repos.len()
+        );
+    }
+    Ok(())
+}
+
+/// Runs the update command of `repo` and prints its output as one block, so
+/// that the outputs of updates running in parallel do not interleave.
+fn update_repository(repo: &LocalRepository) -> Result<()> {
+    let output = output_with_work_dir(repo.backend.update_command(), &repo.path);
+
+    let mut stdout = io::stdout().lock();
+    let mut stderr = io::stderr().lock();
+    writeln!(stdout, "update {}", repo.path)?;
+    let output = output?;
+    stdout.write_all(&output.stdout)?;
+    stdout.flush()?;
+    stderr.write_all(&output.stderr)?;
+    if !output.status.success() {
+        bail!("{}", output.status);
+    }
+    Ok(())
+}
+
 pub fn list(config: &Config<'_>) -> Result<()> {
     each_repo(config, |_, repos| {
+        let mut stdout = io::BufWriter::new(io::stdout().lock());
         for repo in repos {
-            println!("{}", repo.path);
+            writeln!(stdout, "{}", repo.path)?;
         }
+        stdout.flush()?;
         Ok(())
     })
 }
 
 pub fn update(config: &Config<'_>) -> Result<()> {
     each_repo(config, |_, repos| {
-        repos.par_iter().for_each(|repo| {
-            let opt = VCSOption {
-                url: None,
-                path: repo.path.clone(),
-            };
-            println!("update {}", opt.path);
-            if let Err(e) = repo.backend.update(&opt) {
-                error!("Failed to update {}: {}", repo.path, e);
-            }
-        });
-        Ok(())
+        run_parallel(repos, "update", update_repository)
     })
 }
 
 pub fn look(config: &Config<'_>) -> Result<()> {
-    each_repo(config, |config, repos| {
-        if repos.is_empty() {
-            Err(anyhow::format_err!("{} not found", config.query))
-        } else {
-            let path = &repos[0].path;
-            chdir(path)?;
-            Ok(())
-        }
+    each_repo(config, |config, repos| match repos.first() {
+        Some(repo) => chdir(&repo.path),
+        None => bail!("{} not found", config.query),
     })
 }
 
 pub fn remove(config: &Config<'_>) -> Result<()> {
-    each_repo(config, |_, repos| {
+    each_repo(config, |config, repos| {
+        if repos.is_empty() {
+            bail!("{} not found", config.query);
+        }
         for repo in repos {
             println!("{}", repo.path);
-            if confirm("do you want to remove this? [Y/n]", "Y", Some("Y"))? {
+            if confirm("do you want to remove this? [y/N]", false)? {
                 fs::remove_dir_all(&repo.path)?;
                 println!("removed {}", repo.path);
             }
@@ -160,21 +221,22 @@ pub fn remove(config: &Config<'_>) -> Result<()> {
 
 pub fn each_exec(config: &Config<'_>) -> Result<()> {
     each_repo(config, |config, repos| {
-        if let Some(cmd) = config.each_cmd {
-            if config.dry_run {
-                for repo in repos {
-                    println!("{} : dry-run {:?} ", repo.path, cmd);
-                }
-            } else {
-                repos.par_iter().for_each(|repo| {
-                    println!("{} : exec {:?} ", repo.path, cmd);
-                    if let Err(e) = run_with_work_dir(cmd, &repo.path) {
-                        error!("Failed to exec in {}: {}", repo.path, e);
-                    }
-                });
+        let Some(cmd) = config.each_cmd else {
+            return Ok(());
+        };
+        if config.dry_run {
+            for repo in repos {
+                println!("{} : dry-run {:?} ", repo.path, cmd);
             }
+            Ok(())
+        } else {
+            // Standard streams are inherited, so that the output is shown live
+            // and interactive commands keep working.
+            run_parallel(repos, "exec", |repo| {
+                println!("{} : exec {:?} ", repo.path, cmd);
+                run_with_work_dir(cmd, &repo.path)
+            })
         }
-        Ok(())
     })
 }
 
@@ -248,7 +310,6 @@ fn compute_score(entry: &str, query: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::canonicalize;
 
     #[test]
     fn test_compute_score() {
@@ -264,17 +325,17 @@ mod tests {
             LocalRepository {
                 path: "/path/to/repo1".to_string(),
                 relpath: "repo1".to_string(),
-                backend: backend.clone(),
+                backend,
             },
             LocalRepository {
                 path: "/path/to/foo/repo2".to_string(),
                 relpath: "foo/repo1".to_string(),
-                backend: backend.clone(),
+                backend,
             },
             LocalRepository {
                 path: "/path/to/bar/repo3".to_string(),
                 relpath: "bar/repo3".to_string(),
-                backend: backend.clone(),
+                backend,
             },
         ];
         let fuzzy = FuzzyVec::from_vec(repos);
@@ -298,17 +359,6 @@ mod tests {
     }
 
     #[test]
-    fn read_dir() {
-        let _ = env_logger::try_init();
-        let root_path = "/home/ma2/repos";
-        if let Ok(root_path) = canonicalize(root_path) {
-            let mut result: Vec<LocalRepository> = vec![];
-            walk_repository(root_path.to_str().unwrap(), &mut result).unwrap();
-            println!("repos: {result:?}");
-        }
-    }
-
-    #[test]
     fn test_walk_repository() {
         use std::fs::create_dir_all;
         let temp_dir = tempfile::tempdir().unwrap();
@@ -322,7 +372,7 @@ mod tests {
         create_dir_all(repo2.join(".git")).unwrap();
 
         let mut repos = Vec::new();
-        walk_repository(root.to_str().unwrap(), &mut repos).unwrap();
+        walk_repository(root, &mut repos);
 
         assert_eq!(repos.len(), 2);
         let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
@@ -341,13 +391,37 @@ mod tests {
         create_dir_all(root.join("outside/repo2/.git")).unwrap();
 
         let mut repos = Vec::new();
-        walk_repository(root.to_str().unwrap(), &mut repos).unwrap();
+        walk_repository(root, &mut repos);
 
         let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
         assert_eq!(paths.len(), 2);
         assert!(paths.contains(&"repo1".to_string()));
         assert!(paths.contains(&"outside/repo2".to_string()));
         assert!(!paths.contains(&"repo1/nested".to_string()));
+    }
+
+    #[test]
+    fn test_walk_repositories_nested_roots() {
+        use std::fs::create_dir_all;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let outer = temp_dir.path().join("src");
+        let hidden = outer.join(".private");
+        let work = outer.join("work");
+        create_dir_all(outer.join("a/.git")).unwrap();
+        create_dir_all(hidden.join("secret/.git")).unwrap();
+        create_dir_all(work.join("proj/.git")).unwrap();
+
+        let roots: Vec<String> = [&outer, &hidden, &work]
+            .iter()
+            .map(|p| p.to_str().unwrap().to_owned())
+            .collect();
+        let repos = walk_repositories(&roots);
+
+        let mut relpaths: Vec<&str> = repos.iter().map(|r| r.relpath.as_str()).collect();
+        relpaths.sort_unstable();
+        // A hidden root is scanned, and a repository under nested roots is
+        // listed once, relative to the innermost root.
+        assert_eq!(relpaths, ["a", "proj", "secret"]);
     }
 
     #[test]
@@ -361,7 +435,7 @@ mod tests {
         create_dir_all(root.join("visible/.tmp/repo_hidden2/.git")).unwrap();
 
         let mut repos = Vec::new();
-        walk_repository(root.to_str().unwrap(), &mut repos).unwrap();
+        walk_repository(root, &mut repos);
 
         let paths: Vec<String> = repos.iter().map(|r| r.relpath.clone()).collect();
         assert_eq!(paths.len(), 1);
